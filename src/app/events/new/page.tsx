@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import AvatarName from "@/components/AvatarName";
 
 type Group = { id: string; name: string };
 type Member = { user_id: string; role: string; display_name: string | null };
@@ -131,9 +132,10 @@ export default function NewEventPage() {
                       setSelected((prev) => ({ ...prev, [m.user_id]: e.target.checked }))
                     }
                   />
-                  <span>
-                    {m.display_name ?? m.user_id} {m.role === "owner" ? "(owner)" : ""}
-                  </span>
+                  <AvatarName
+                    name={m.display_name}
+                    subtitle={m.role === "owner" ? "Owner" : null}
+                  />
                 </label>
               ))}
             </div>

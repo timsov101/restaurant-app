@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import AvatarName from "@/components/AvatarName";
 
 type Group = {
   id: string;
@@ -243,9 +244,11 @@ export default function GroupsPage() {
                     ) : (
                       <ul style={{ paddingLeft: 18, margin: 0 }}>
                         {members.map((m) => (
-                          <li key={m.user_id} style={{ marginBottom: 4, fontSize: 13 }}>
-                            {m.display_name ?? m.user_id}
-                            {m.role === "owner" ? " (owner)" : ""}
+                          <li key={m.user_id} style={{ marginBottom: 8 }}>
+                            <AvatarName
+                              name={m.display_name}
+                              subtitle={m.role === "owner" ? "Owner" : null}
+                            />
                           </li>
                         ))}
                       </ul>

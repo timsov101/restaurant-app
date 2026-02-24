@@ -21,7 +21,7 @@ export default function NavAuth() {
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const label = useMemo(() => displayName || email || "", [displayName, email]);
+  const label = useMemo(() => displayName || "Profile", [displayName]);
   const initials = useMemo(() => initialsFrom(label || "?"), [label]);
 
   async function loadProfile(uid: string) {
@@ -111,7 +111,7 @@ export default function NavAuth() {
         </div>
 
         <div style={{ fontSize: 12, opacity: 0.85 }}>
-          {displayName ? displayName : email}
+          {displayName ? displayName : "Set name"}
         </div>
       </Link>
 

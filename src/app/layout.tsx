@@ -71,6 +71,7 @@ export default function RootLayout({
                 <NavLink href="/restaurants" label="Restaurants" />
                 <NavLink href="/ratings" label="Ratings" />
                 <NavLink href="/events/new" label="New Event" />
+                <NavLink href="/profile" label="Profile" />
               </div>
 
               <NavAuth />

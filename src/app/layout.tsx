@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import "./globals.css";
+import NavAuth from "@/components/NavAuth";
 
 export const metadata: Metadata = {
   title: "Restaurant App",
@@ -64,11 +65,15 @@ export default function RootLayout({
               🍽️ Restaurant App
             </Link>
 
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-              <NavLink href="/groups" label="Groups" />
-              <NavLink href="/restaurants" label="Restaurants" />
-              <NavLink href="/ratings" label="Ratings" />
-              <NavLink href="/events/new" label="New Event" />
+            <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <NavLink href="/groups" label="Groups" />
+                <NavLink href="/restaurants" label="Restaurants" />
+                <NavLink href="/ratings" label="Ratings" />
+                <NavLink href="/events/new" label="New Event" />
+              </div>
+
+              <NavAuth />
             </div>
           </nav>
         </header>

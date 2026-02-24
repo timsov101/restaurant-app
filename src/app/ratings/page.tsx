@@ -144,33 +144,32 @@ export default function RatingsPage() {
   }
 
   async function upsertRating(restaurantId: string, patch: Partial<RatingRow>) {
-    setError(null);
-    setSavingId(restaurantId);
+  setError(null);
+  setSavingId(restaurantId);
 
-    const { data: sessionData } = await supabase.auth.getSession();
-    const uid = sessionData.session?.user?.id;
-    if (!uid) {
-      setSavingId(null);
-      setError("Not signed in.");
-      return;
-    }
+  const { data: sessionData } = await supabase.auth.getSession();
+  const uid = sessionData.session?.user?.id;
+  if (!uid) {
+    setSavingId(null);
+    setError("Not signed in.");
+    return;
+  }
 
-    const current = ratings[restaurantId] ?? {
-      restaurant_id: restaurantId,
-      overall: null,
-      nutrition: null,
-    };
+  const current = ratings[restaurantId] ?? {
+    restaurant_id: restaurantId,
+    overall: null,
+    nutrition: null,
+  };
 
-    const next = { ...current, ...patch };
+  const next = { ...current, ...patch };
 
+  // If both are null, delete the row instead of storing nulls
+  if (next.overall == null && next.nutrition == null) {
     const { error } = await supabase
       .from("restaurant_ratings")
-      .upsert({
-        restaurant_id: restaurantId,
-        user_id: uid,
-        overall: next.overall,
-        nutrition: next.nutrition,
-      });
+      .delete()
+      .eq("restaurant_id", restaurantId)
+      .eq("user_id", uid);
 
     setSavingId(null);
 
@@ -179,8 +178,34 @@ export default function RatingsPage() {
       return;
     }
 
-    setRatings((prev) => ({ ...prev, [restaurantId]: next }));
+    setRatings((prev) => {
+      const copy = { ...prev };
+      delete copy[restaurantId];
+      return copy;
+    });
+
+    return;
   }
+
+  // Otherwise upsert normally
+  const { error } = await supabase
+    .from("restaurant_ratings")
+    .upsert({
+      restaurant_id: restaurantId,
+      user_id: uid,
+      overall: next.overall,
+      nutrition: next.nutrition,
+    });
+
+  setSavingId(null);
+
+  if (error) {
+    setError(error.message);
+    return;
+  }
+
+  setRatings((prev) => ({ ...prev, [restaurantId]: next }));
+}
 
   if (!sessionOk) return <main style={{ padding: 24 }}>Loading…</main>;
 

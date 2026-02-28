@@ -21,7 +21,7 @@ export async function GET(req: Request) {
     "Content-Type": "application/json",
     "X-Goog-Api-Key": apiKey,
     // FieldMask is REQUIRED for Place Details (New)
-    "X-Goog-FieldMask": "id,displayName,formattedAddress,priceLevel",
+    "X-Goog-FieldMask": "id,displayName,formattedAddress,priceLevel,primaryType,types,priceRange",
   };
 
   // Session token is passed as a query param (optional)
@@ -38,12 +38,25 @@ export async function GET(req: Request) {
   }
 
   // Map New API shape to something simple for our app
+  const priceRange = data.priceRange ?? null;
+
   return NextResponse.json({
     result: {
       place_id: data.id,
       name: data.displayName?.text ?? null,
       formatted_address: data.formattedAddress ?? null,
       price_level: data.priceLevel ?? null,
+      primary_type: data.primaryType ?? null,
+      types: Array.isArray(data.types) ? data.types : [],
+      price_range: priceRange
+        ? {
+          currencyCode: priceRange.startPrice?.currencyCode ?? priceRange.endPrice?.currencyCode ?? null,
+          startUnits: priceRange.startPrice?.units ?? null,
+          startNanos: priceRange.startPrice?.nanos ?? null,
+          endUnits: priceRange.endPrice?.units ?? null,
+          endNanos: priceRange.endPrice?.nanos ?? null,
+        }
+        : null,
     },
   });
 }

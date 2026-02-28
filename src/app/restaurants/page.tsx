@@ -14,7 +14,16 @@ type PlaceDetailsResult = {
   place_id: string;
   name: string | null;
   formatted_address: string | null;
-  price_level: string | null; // Places(New) enum string like PRICE_LEVEL_INEXPENSIVE
+  price_level: string | null;
+  primary_type: string | null;
+  types: string[];
+  price_range: {
+    currencyCode: string | null;
+    startUnits: number | null;
+    startNanos: number | null;
+    endUnits: number | null;
+    endNanos: number | null;
+  } | null;
 };
 
 function mapPriceLevel(priceLevel: string | null): number | null {
@@ -134,6 +143,19 @@ export default function RestaurantsPage() {
       name: selected.name ?? "Unknown",
       address: selected.formatted_address ?? null,
       price_level: mapPriceLevel(selected.price_level),
+
+      primary_type: selected.primary_type ?? null,
+      types: selected.types ?? [],
+
+      price_currency: selected.price_range?.currencyCode ?? null,
+      price_range_start:
+        selected.price_range?.startUnits == null
+          ? null
+          : Number(selected.price_range.startUnits) + Number(selected.price_range.startNanos ?? 0) / 1e9,
+      price_range_end:
+        selected.price_range?.endUnits == null
+          ? null
+          : Number(selected.price_range.endUnits) + Number(selected.price_range.endNanos ?? 0) / 1e9,
     };
 
     const { error } = await supabase.from("restaurants").insert(payload);
@@ -236,6 +258,16 @@ export default function RestaurantsPage() {
           </div>
           <div style={{ marginTop: 6, fontSize: 13, opacity: 0.8 }}>
             Price: {selected.price_level ?? "Unknown"} (stored as {String(mapPriceLevel(selected.price_level))})
+          </div>
+          <div style={{ marginTop: 6, fontSize: 13, opacity: 0.8 }}>
+            Cuisine type: {selected.primary_type ?? "Unknown"}
+          </div>
+
+          <div style={{ marginTop: 6, fontSize: 13, opacity: 0.8 }}>
+            Price range:{" "}
+            {selected.price_range?.startUnits != null && selected.price_range?.endUnits != null
+              ? `${selected.price_range.startUnits}–${selected.price_range.endUnits} ${selected.price_range.currencyCode ?? ""}`.trim()
+              : "Unknown"}
           </div>
           <button
             type="button"

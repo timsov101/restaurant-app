@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import FiltersDrawer, { EatFilters } from "@/components/FiltersDrawer";
+import { Star, Leaf, DollarSign, MapPin } from "lucide-react";
 import {
   Utensils,
   ChevronDown,
@@ -639,9 +640,7 @@ export default function EatPage() {
               );
             })}
           </div>
-          <div style={{ fontSize: 12, opacity: 0.75 }}>
-            {loadingRecs ? "Updating recommendations…" : "Tap diners to include/exclude."}
-          </div>
+
         </div>
       ) : null}
 
@@ -758,16 +757,16 @@ export default function EatPage() {
                           fontWeight: 900,
                         }}
                       >
-                        {Number(r.final_score).toFixed(1)}
+                        {Math.round(Number(r.final_score))}
                       </div>
                     </div>
 
-                    <div style={{ marginTop: 6, fontSize: 16, color: "#6b7280", fontWeight: 700 }}>
+                    <div style={{ marginTop: 6, fontSize: 16, color: "#6b7280", fontWeight: 550 }}>
                       {prettyCuisine(recMeta[r.restaurant_id]?.primary_type ?? null) ?? ""}
                     </div>
 
                     {r.address && (
-                      <div style={{ marginTop: 6, fontSize: 14, color: "#9ca3af", fontWeight: 700 }}>
+                      <div style={{ marginTop: 6, fontSize: 14, color: "#9ca3af", fontWeight: 500 }}>
                         {r.address}
                       </div>
                     )}
@@ -787,7 +786,7 @@ export default function EatPage() {
                       border: "2px solid #1d4ed8",
                       background: chosenRestaurantId === r.restaurant_id ? "#1d4ed8" : "white",
                       color: chosenRestaurantId === r.restaurant_id ? "white" : "#1d4ed8",
-                      fontWeight: 900,
+                      fontWeight: 800,
                       display: "inline-flex",
                       alignItems: "center",
                       gap: 10,
@@ -802,11 +801,43 @@ export default function EatPage() {
                   </button>
                 </div>
 
-                <div style={{ marginTop: 14, display: "flex", gap: 18, flexWrap: "wrap", fontWeight: 800 }}>
-                  <div style={{ color: "#f59e0b" }}>★ {Number(r.overall_avg).toFixed(1)}</div>
-                  <div style={{ color: "#10b981" }}>❧ {Number(r.nutrition_avg).toFixed(1)}</div>
-                  <div style={{ color: "#2563eb" }}>$ {priceDollar(r.price_level) ?? "—"}</div>
-                  <div style={{ color: "#7c3aed" }}>◎ — mi</div>
+                <div
+                  style={{
+                    marginTop: 14,
+                    display: "flex",
+                    gap: 18,
+                    flexWrap: "wrap",
+                    fontWeight: 500,
+                    alignItems: "center",
+                  }}
+                >
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ color: "#f59e0b", display: "inline-flex", alignItems: "center" }}>
+                      <Star size={16} fill="#f59e0b" />
+                    </span>
+                    <span style={{ color: "#111827" }}>{Number(r.overall_avg).toFixed(1)}</span>
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ color: "#10b981", display: "inline-flex", alignItems: "center" }}>
+                      <Leaf size={16} fill="#10b981" />
+                    </span>
+                    <span style={{ color: "#111827" }}>{Number(r.nutrition_avg).toFixed(1)}</span>
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ color: "#2563eb", display: "inline-flex", alignItems: "center" }}>
+                      <DollarSign size={16} />
+                    </span>
+                    <span style={{ color: "#111827" }}>{priceDollar(r.price_level) ?? "—"}</span>
+                  </div>
+
+                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <span style={{ color: "#7c3aed", display: "inline-flex", alignItems: "center" }}>
+                      <MapPin size={16} />
+                    </span>
+                    <span style={{ color: "#111827" }}>— mi</span>
+                  </div>
                 </div>
               </div>
             ))}

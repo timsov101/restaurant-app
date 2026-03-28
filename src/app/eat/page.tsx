@@ -178,6 +178,16 @@ export default function EatPage() {
     );
   }, [pickQuery, savedRestaurants]);
 
+  const filtersActive = useMemo(() => {
+    return (
+      filters.cuisines.length > 0 ||
+      filters.maxPriceLevel !== null ||
+      filters.minOverall !== null ||
+      filters.minNutrition !== null ||
+      filters.maxDistanceMiles !== null
+    );
+  }, [filters]);
+
   function selectedParticipantIds() {
     return Object.entries(selectedMembers)
       .filter(([, v]) => v)
@@ -584,13 +594,13 @@ export default function EatPage() {
 
         <button
           type="button"
-          title="Filters (coming next)"
+          title="Filters"
           style={{
             width: 52,
             height: 52,
             borderRadius: 999,
             border: "2px solid #1d4ed8",
-            background: "white",
+            background: filtersActive ? "#1d4ed8" : "white",
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
@@ -599,7 +609,7 @@ export default function EatPage() {
           }}
           onClick={() => setFiltersOpen(true)}
         >
-          <SlidersHorizontal color="#1d4ed8" />
+          <SlidersHorizontal color={filtersActive ? "white" : "#1d4ed8"} />
         </button>
       </div>
 

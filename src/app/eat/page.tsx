@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import FiltersDrawer, { EatFilters } from "@/components/FiltersDrawer";
 import {
   Utensils,
   ChevronDown,
@@ -116,7 +117,58 @@ export default function EatPage() {
   const debounceTimer = useRef<number | null>(null);
   const suppressAutoRun = useRef(false);
 
-  const visible = useMemo(() => recs.slice(0, visibleCount), [recs, visibleCount]);
+  // filter initial states
+  const defaultFilters: EatFilters = {
+    cuisines: [],
+    maxPriceLevel: null,
+    minOverall: null,
+    minNutrition: null,
+    maxDistanceMiles: null,
+  };
+
+  const [recMeta, setRecMeta] = useState<Record<string, { primary_type: string | null; price_level: number | null }>>({});
+
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [filters, setFilters] = useState<EatFilters>(defaultFilters);
+
+  useEffect(() => {
+    setVisibleCount(5);
+  }, [filters]);
+
+  const filteredRecs = useMemo(() => {
+    return recs.filter((r) => {
+      const meta = recMeta[r.restaurant_id] ?? { primary_type: null, price_level: null };
+
+      if (filters.cuisines.length > 0) {
+        if (!meta.primary_type || !filters.cuisines.includes(meta.primary_type)) return false;
+      }
+
+      if (filters.maxPriceLevel != null) {
+        // include unknown prices; only exclude when known and too expensive
+        if (meta.price_level != null && meta.price_level > filters.maxPriceLevel) return false;
+      }
+
+      if (filters.minOverall != null && Number(r.overall_avg) < filters.minOverall) return false;
+      if (filters.minNutrition != null && Number(r.nutrition_avg) < filters.minNutrition) return false;
+
+      return true;
+    });
+  }, [recs, recMeta, filters]);
+
+  const visible = useMemo(
+    () => filteredRecs.slice(0, visibleCount),
+    [filteredRecs, visibleCount]
+  );
+
+  const cuisineOptions = useMemo(() => {
+    const set = new Set<string>();
+    Object.values(recMeta).forEach((m) => {
+      if (m.primary_type) set.add(m.primary_type);
+    });
+    return Array.from(set)
+      .sort()
+      .map((v) => ({ value: v, label: prettyCuisine(v) ?? v }));
+  }, [recMeta]);
 
   const filteredSaved = useMemo(() => {
     const q = pickQuery.trim().toLowerCase();
@@ -187,6 +239,21 @@ export default function EatPage() {
       return;
     }
     setRecs((data ?? []) as RecRow[]);
+    const ids = ((data ?? []) as RecRow[]).map((x) => x.restaurant_id);
+    if (ids.length) {
+      const { data: m } = await supabase
+        .from("restaurants")
+        .select("id, primary_type, price_level")
+        .in("id", ids);
+
+      const map: Record<string, { primary_type: string | null; price_level: number | null }> = {};
+      (m ?? []).forEach((row: any) => {
+        map[row.id] = { primary_type: row.primary_type ?? null, price_level: row.price_level ?? null };
+      });
+      setRecMeta(map);
+    } else {
+      setRecMeta({});
+    }
     setVisibleCount(5);
   }
 
@@ -530,7 +597,7 @@ export default function EatPage() {
             boxShadow: "0 2px 10px rgba(0,0,0,0.04)",
             cursor: "pointer",
           }}
-          onClick={() => alert("Filters UI is next.")}
+          onClick={() => setFiltersOpen(true)}
         >
           <SlidersHorizontal color="#1d4ed8" />
         </button>
@@ -734,8 +801,8 @@ export default function EatPage() {
           <div style={{ display: "flex", gap: 12, marginTop: 14 }}>
             <button
               type="button"
-              onClick={() => setVisibleCount((c) => Math.min(recs.length, c + 5))}
-              disabled={visibleCount >= recs.length}
+              onClick={() => setVisibleCount((c) => Math.min(filteredRecs.length, c + 5))}
+              disabled={visibleCount >= filteredRecs.length}
               style={{
                 flex: 1,
                 padding: "14px 14px",
@@ -748,8 +815,8 @@ export default function EatPage() {
                 alignItems: "center",
                 justifyContent: "center",
                 gap: 10,
-                cursor: visibleCount >= recs.length ? "default" : "pointer",
-                opacity: visibleCount >= recs.length ? 0.5 : 1,
+                cursor: visibleCount >= filteredRecs.length ? "default" : "pointer",
+                opacity: visibleCount >= filteredRecs.length ? 0.5 : 1,
               }}
             >
               <ChevronDown size={18} />
@@ -937,6 +1004,16 @@ export default function EatPage() {
           </div>
         </div>
       )}
+
+      <FiltersDrawer
+        open={filtersOpen}
+        onClose={() => setFiltersOpen(false)}
+        cuisineOptions={cuisineOptions}
+        filters={filters}
+        setFilters={setFilters}
+        onReset={() => setFilters(defaultFilters)}
+        matchCount={filteredRecs.length}
+      />
     </main>
   );
 }

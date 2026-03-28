@@ -104,6 +104,8 @@ export default function EatPage() {
   const [choosingId, setChoosingId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  const [pickedViaModal, setPickedViaModal] = useState(false);
+
   // Pick My Own modal state
   const [pickOpen, setPickOpen] = useState(false);
   const [pickQuery, setPickQuery] = useState("");
@@ -366,87 +368,87 @@ export default function EatPage() {
     })();
   }, []);
 
-// When groupId changes: load members, restore draft participants, load recs
-useEffect(() => {
-  if (!uid) return;
-  if (!groupId) return;
+  // When groupId changes: load members, restore draft participants, load recs
+  useEffect(() => {
+    if (!uid) return;
+    if (!groupId) return;
 
-  localStorage.setItem("eat.lastGroupId", groupId);
+    localStorage.setItem("eat.lastGroupId", groupId);
 
-  (async () => {
-    setError(null);
-    setLoadingMembers(true);
-    setMembers([]);
-    setRecs([]);
-    setVisibleCount(5);
-    setEventId(null);
-    setChosenRestaurantId(null);
+    (async () => {
+      setError(null);
+      setLoadingMembers(true);
+      setMembers([]);
+      setRecs([]);
+      setVisibleCount(5);
+      setEventId(null);
+      setChosenRestaurantId(null);
 
-    const { data, error } = await supabase.rpc("members_for_group", { p_group_id: groupId });
-    setLoadingMembers(false);
+      const { data, error } = await supabase.rpc("members_for_group", { p_group_id: groupId });
+      setLoadingMembers(false);
 
-    if (error) {
-      setError(error.message);
-      return;
-    }
-
-    const ms = (data ?? []) as Member[];
-    setMembers(ms);
-
-    // default selection: all true
-    const allSel: Record<string, boolean> = {};
-    ms.forEach((m) => (allSel[m.user_id] = true));
-
-    setLoadingRecs(true);
-
-    try {
-      // Try to reuse a recent draft event (3h)
-      const draft = await findRecentDraftEvent(groupId);
-
-      if (draft?.id) {
-        const eid = draft.id as string;
-        setEventId(eid);
-        setChosenRestaurantId(draft.chosen_restaurant_id ?? null);
-
-        // Load stored participants for the draft and reflect in chips
-        const existing = await loadParticipantsForEvent(eid);
-
-        const sel: Record<string, boolean> = {};
-        ms.forEach((m) => {
-          sel[m.user_id] = existing ? existing.includes(m.user_id) : true;
-        });
-
-        suppressAutoRun.current = true;
-        setSelectedMembers(sel);
-        suppressAutoRun.current = false;
-
-        // Ensure participants are set (also “touches” updated_at)
-        await supabase.rpc("set_event_participants", {
-          p_event_id: eid,
-          p_user_ids: (existing && existing.length > 0) ? existing : Object.keys(allSel),
-        });
-
-        await loadRecs(eid);
-      } else {
-        // Create a new draft event using all diners selected
-        const created = await createDraftEvent(groupId, Object.keys(allSel));
-        setEventId(created.id);
-        setChosenRestaurantId(created.chosen_restaurant_id ?? null);
-
-        suppressAutoRun.current = true;
-        setSelectedMembers(allSel);
-        suppressAutoRun.current = false;
-
-        await loadRecs(created.id);
+      if (error) {
+        setError(error.message);
+        return;
       }
-    } catch (e: any) {
-      setError(e.message ?? String(e));
-    } finally {
-      setLoadingRecs(false);
-    }
-  })();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [groupId, uid]);
+
+      const ms = (data ?? []) as Member[];
+      setMembers(ms);
+
+      // default selection: all true
+      const allSel: Record<string, boolean> = {};
+      ms.forEach((m) => (allSel[m.user_id] = true));
+
+      setLoadingRecs(true);
+
+      try {
+        // Try to reuse a recent draft event (3h)
+        const draft = await findRecentDraftEvent(groupId);
+
+        if (draft?.id) {
+          const eid = draft.id as string;
+          setEventId(eid);
+          setChosenRestaurantId(draft.chosen_restaurant_id ?? null);
+
+          // Load stored participants for the draft and reflect in chips
+          const existing = await loadParticipantsForEvent(eid);
+
+          const sel: Record<string, boolean> = {};
+          ms.forEach((m) => {
+            sel[m.user_id] = existing ? existing.includes(m.user_id) : true;
+          });
+
+          suppressAutoRun.current = true;
+          setSelectedMembers(sel);
+          suppressAutoRun.current = false;
+
+          // Ensure participants are set (also “touches” updated_at)
+          await supabase.rpc("set_event_participants", {
+            p_event_id: eid,
+            p_user_ids: (existing && existing.length > 0) ? existing : Object.keys(allSel),
+          });
+
+          await loadRecs(eid);
+        } else {
+          // Create a new draft event using all diners selected
+          const created = await createDraftEvent(groupId, Object.keys(allSel));
+          setEventId(created.id);
+          setChosenRestaurantId(created.chosen_restaurant_id ?? null);
+
+          suppressAutoRun.current = true;
+          setSelectedMembers(allSel);
+          suppressAutoRun.current = false;
+
+          await loadRecs(created.id);
+        }
+      } catch (e: any) {
+        setError(e.message ?? String(e));
+      } finally {
+        setLoadingRecs(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupId, uid]);
 
   // When selectedMembers changes: debounce update participants + rerun recs
   useEffect(() => {
@@ -567,7 +569,7 @@ useEffect(() => {
       ) : null}
 
       {/* Your Pick card */}
-      {chosenDetails && (
+      {pickedViaModal && chosenDetails && (
         <div
           style={{
             borderRadius: 18,
@@ -692,20 +694,22 @@ useEffect(() => {
 
                   <button
                     type="button"
-                    onClick={() => chooseRestaurant(r.restaurant_id)}
+                    onClick={() => {
+                      setPickedViaModal(false);
+                      chooseRestaurant(r.restaurant_id);
+                    }}
                     disabled={choosingId !== null}
                     style={{
                       height: 56,
                       padding: "0 16px",
                       borderRadius: 999,
                       border: "2px solid #1d4ed8",
-                      background: "white",
-                      color: "#1d4ed8",
+                      background: chosenRestaurantId === r.restaurant_id ? "#1d4ed8" : "white",
+                      color: chosenRestaurantId === r.restaurant_id ? "white" : "#1d4ed8",
                       fontWeight: 900,
                       display: "inline-flex",
                       alignItems: "center",
                       gap: 10,
-                      opacity: chosenRestaurantId === r.restaurant_id ? 1 : 0.75,
                       boxShadow: "0 8px 18px rgba(29,78,216,0.16)",
                       cursor: choosingId ? "default" : "pointer",
                       whiteSpace: "nowrap",
@@ -898,6 +902,7 @@ useEffect(() => {
                           <button
                             type="button"
                             onClick={async () => {
+                              setPickedViaModal(true);
                               await chooseRestaurant(r.id);
                               setPickOpen(false);
                             }}

@@ -762,6 +762,10 @@ export default function EatPage() {
                       </div>
                     </div>
 
+                    <div style={{ marginTop: 6, fontSize: 16, color: "#6b7280", fontWeight: 700 }}>
+                      {prettyCuisine(recMeta[r.restaurant_id]?.primary_type ?? null) ?? ""}
+                    </div>
+
                     {r.address && (
                       <div style={{ marginTop: 6, fontSize: 14, color: "#9ca3af", fontWeight: 700 }}>
                         {r.address}

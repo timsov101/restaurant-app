@@ -2,18 +2,28 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Utensils, Search, History, Users } from "lucide-react";
 
-type Tab = { href: string; label: string; icon: string };
+type NavItem = {
+  href: string;
+  label: string;
+  Icon: any;
+};
 
-const tabs: Tab[] = [
-  { href: "/eat", label: "Eat", icon: "🍽️" },
-  { href: "/restaurants", label: "Restaurants", icon: "📍" },
-  { href: "/history", label: "History", icon: "🕘" },
-  { href: "/diners", label: "Diners", icon: "👥" },
+const navItems: NavItem[] = [
+  { href: "/eat", label: "Eat", Icon: Utensils },
+  { href: "/restaurants", label: "Restaurants", Icon: Search },
+  { href: "/history", label: "History", Icon: History },
+  { href: "/diners", label: "Diners", Icon: Users },
 ];
 
+// Treat /events/* as part of Eat until we merge into /eat
 function isActive(pathname: string, href: string) {
   if (href === "/eat") return pathname === "/eat" || pathname.startsWith("/events");
+
+  // Temporary: Diners tab currently redirects to /groups
+  if (href === "/diners") return pathname === "/diners" || pathname.startsWith("/groups");
+
   return pathname === href || pathname.startsWith(href + "/");
 }
 
@@ -24,52 +34,47 @@ export default function BottomTabs() {
     <nav
       style={{
         position: "fixed",
+        bottom: 0,
         left: 0,
         right: 0,
-        bottom: 0,
-        zIndex: 50,
-        borderTop: "1px solid #eee",
         background: "white",
+        borderTop: "1px solid #e5e7eb", // gray-200
         paddingBottom: "env(safe-area-inset-bottom)",
+        zIndex: 50,
       }}
       aria-label="Bottom navigation"
     >
       <div
         style={{
+          height: 64, // h-16
+          display: "flex",
+          justifyContent: "space-around",
+          alignItems: "center",
           maxWidth: 1000,
           margin: "0 auto",
-          display: "grid",
-          gridTemplateColumns: "repeat(4, 1fr)",
-          gap: 2,
-          padding: "8px 10px",
         }}
       >
-        {tabs.map((t) => {
-          const active = isActive(pathname, t.href);
+        {navItems.map(({ href, label, Icon }) => {
+          const active = isActive(pathname, href);
+
           return (
             <Link
-              key={t.href}
-              href={t.href}
+              key={href}
+              href={href}
               style={{
-                textDecoration: "none",
-                color: "inherit",
-                borderRadius: 12,
-                padding: "10px 8px",
+                flex: 1,
+                height: "100%",
                 display: "flex",
                 flexDirection: "column",
                 alignItems: "center",
                 justifyContent: "center",
-                gap: 4,
-                opacity: active ? 1 : 0.55,
-                border: active ? "1px solid #ddd" : "1px solid transparent",
-                background: active ? "#fafafa" : "transparent",
-                minHeight: 56,
+                textDecoration: "none",
+                transition: "color 150ms ease",
+                color: active ? "#2563eb" : "#6b7280", // blue-600 / gray-500
               }}
             >
-              <div style={{ fontSize: 18, lineHeight: "18px" }}>{t.icon}</div>
-              <div style={{ fontSize: 12, fontWeight: active ? 700 : 600 }}>
-                {t.label}
-              </div>
+              <Icon size={24} />
+              <span style={{ fontSize: 12, marginTop: 4 }}>{label}</span>
             </Link>
           );
         })}

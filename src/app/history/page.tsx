@@ -2,15 +2,11 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { ActiveGroup, pickActiveGroupId, setStoredActiveGroupId } from "@/lib/activeGroup";
 import { Filter, Search } from "lucide-react";
 import HistoryCard, { HistoryRow } from "./HistoryCard";
 import { formatCuisineLabel } from "./HistoryCuisine";
 import HistoryFiltersModal, { HistoryFilters } from "./HistoryFiltersModal";
-
-type RestaurantMetadataRow = {
-  id: string;
-  primary_type: string | null;
-};
 
 const defaultFilters: HistoryFilters = {
   cuisines: [],
@@ -20,7 +16,7 @@ function matchesSearch(row: HistoryRow, query: string) {
   const s = query.trim().toLowerCase();
   if (!s) return true;
 
-  const cuisine = formatCuisineLabel(row.restaurant_primary_type)?.toLowerCase() ?? "";
+  const cuisine = formatCuisineLabel(row.cuisine)?.toLowerCase() ?? "";
 
   return (
     row.group_name.toLowerCase().includes(s) ||
@@ -33,7 +29,7 @@ function matchesSearch(row: HistoryRow, query: string) {
 
 function matchesFilters(row: HistoryRow, filters: HistoryFilters) {
   if (filters.cuisines.length > 0) {
-    if (!row.restaurant_primary_type || !filters.cuisines.includes(row.restaurant_primary_type)) return false;
+    if (!row.cuisine || !filters.cuisines.includes(row.cuisine)) return false;
   }
 
   return true;
@@ -48,6 +44,7 @@ export default function HistoryPage() {
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filters, setFilters] = useState<HistoryFilters>(defaultFilters);
   const [draftFilters, setDraftFilters] = useState<HistoryFilters>(defaultFilters);
+  const [hasGroups, setHasGroups] = useState(true);
   const filtersActive = filters.cuisines.length > 0;
 
   async function load() {
@@ -60,7 +57,42 @@ export default function HistoryPage() {
       return;
     }
 
-    const { data, error } = await supabase.rpc("history_for_user");
+    const { data: memberships, error: membershipsError } = await supabase
+      .from("group_members")
+      .select("groups ( id, name )")
+      .eq("user_id", sessionData.session.user.id);
+
+    if (membershipsError) {
+      setLoading(false);
+      setErr(membershipsError.message);
+      setRows([]);
+      return;
+    }
+
+    const groups: ActiveGroup[] = ((memberships ?? []) as Array<{ groups: ActiveGroup | null }>)
+      .map((row) => row.groups)
+      .filter(Boolean) as ActiveGroup[];
+
+    setHasGroups(groups.length > 0);
+
+    if (groups.length === 0) {
+      setLoading(false);
+      setRows([]);
+      return;
+    }
+
+    const activeGroupId = pickActiveGroupId(groups);
+    if (!activeGroupId) {
+      setLoading(false);
+      setRows([]);
+      return;
+    }
+
+    setStoredActiveGroupId(activeGroupId);
+
+    const { data, error } = await supabase.rpc("history_for_group", {
+      p_group_id: activeGroupId,
+    });
     setLoading(false);
 
     if (error) {
@@ -69,38 +101,7 @@ export default function HistoryPage() {
       return;
     }
 
-    const historyRows = ((data ?? []) as HistoryRow[]).map((row) => ({
-      ...row,
-      restaurant_primary_type: null,
-    }));
-
-    const restaurantIds = Array.from(new Set(historyRows.map((row) => row.restaurant_id).filter(Boolean)));
-
-    if (restaurantIds.length === 0) {
-      setRows(historyRows);
-      return;
-    }
-
-    const { data: metadata, error: metadataError } = await supabase
-      .from("restaurants")
-      .select("id, primary_type")
-      .in("id", restaurantIds);
-
-    if (metadataError) {
-      setRows(historyRows);
-      return;
-    }
-
-    const metadataById = new Map(
-      ((metadata ?? []) as RestaurantMetadataRow[]).map((row) => [row.id, row.primary_type ?? null])
-    );
-
-    setRows(
-      historyRows.map((row) => ({
-        ...row,
-        restaurant_primary_type: metadataById.get(row.restaurant_id) ?? null,
-      }))
-    );
+    setRows((data ?? []) as HistoryRow[]);
   }
 
   useEffect(() => {
@@ -115,10 +116,10 @@ export default function HistoryPage() {
     const entries = new Map<string, string>();
 
     rows.forEach((row) => {
-      if (!row.restaurant_primary_type) return;
-      const label = formatCuisineLabel(row.restaurant_primary_type);
+      if (!row.cuisine) return;
+      const label = formatCuisineLabel(row.cuisine);
       if (!label) return;
-      entries.set(row.restaurant_primary_type, label);
+      entries.set(row.cuisine, label);
     });
 
     return Array.from(entries.entries())
@@ -241,6 +242,8 @@ export default function HistoryPage() {
       {err && <div style={{ color: "crimson", marginBottom: 10 }}>{err}</div>}
       {loading ? (
         <div style={{ opacity: 0.7 }}>Loading…</div>
+      ) : !hasGroups ? (
+        <div style={{ opacity: 0.7 }}>Join or create a group to see history.</div>
       ) : filtered.length === 0 ? (
         <div style={{ opacity: 0.7 }}>No completed dining events yet.</div>
       ) : (

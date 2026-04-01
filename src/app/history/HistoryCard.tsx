@@ -11,7 +11,7 @@ export type HistoryRow = {
   restaurant_id: string;
   restaurant_name: string;
   restaurant_address: string | null;
-  restaurant_primary_type: string | null;
+  cuisine: string | null;
   diners: string | null;
 };
 
@@ -129,7 +129,7 @@ export default function HistoryCard({
             {row.restaurant_name}
           </div>
 
-          <HistoryCuisine primaryType={row.restaurant_primary_type} />
+          <HistoryCuisine primaryType={row.cuisine} />
 
           <div
             style={{

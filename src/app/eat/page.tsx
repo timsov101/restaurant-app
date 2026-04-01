@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
+import { pickActiveGroupId, setStoredActiveGroupId } from "@/lib/activeGroup";
 import FiltersDrawer, { EatFilters } from "@/components/FiltersDrawer";
 import { Star, Leaf, DollarSign, MapPin } from "lucide-react";
 import {
@@ -438,11 +439,8 @@ export default function EatPage() {
       setGroups(gs);
       setLoading(false);
 
-      // auto-select last group
-      const last = localStorage.getItem("eat.lastGroupId");
-      if (last && gs.some((g) => g.id === last)) {
-        setGroupId(last);
-      }
+      const activeGroupId = pickActiveGroupId(gs);
+      if (activeGroupId) setGroupId(activeGroupId);
     })();
   }, []);
 
@@ -451,7 +449,7 @@ export default function EatPage() {
     if (!uid) return;
     if (!groupId) return;
 
-    localStorage.setItem("eat.lastGroupId", groupId);
+    setStoredActiveGroupId(groupId);
 
     (async () => {
       setError(null);

@@ -4,18 +4,21 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Bookmark,
   Check,
-  ChevronDown,
-  Filter,
   Leaf,
   MapPin,
   Search,
   Star,
   Trash2,
-  Users,
 } from "lucide-react";
 
 import { pickActiveGroupId, setStoredActiveGroupId } from "@/lib/activeGroup";
+import type { ActiveGroupOption } from "@/lib/activeGroupData";
+import { loadUserActiveGroups } from "@/lib/activeGroupData";
 import { supabase } from "@/lib/supabaseClient";
+import ActiveGroupModal from "@/components/ActiveGroupModal";
+import ActiveGroupTrigger from "@/components/ActiveGroupTrigger";
+import StatePanel from "@/components/StatePanel";
+import TopControlRow from "@/components/TopControlRow";
 import RestaurantsFiltersModal, {
   RestaurantFilters,
   RestaurantMode,
@@ -24,8 +27,9 @@ import RestaurantsFiltersModal, {
 import RestaurantsRatingModal from "./RestaurantsRatingModal";
 
 type Group = {
-  id: string;
-  name: string;
+  id: ActiveGroupOption["id"];
+  name: ActiveGroupOption["name"];
+  memberCount: ActiveGroupOption["memberCount"];
 };
 
 type SavedRestaurantRow = {
@@ -372,51 +376,6 @@ function metricStyle(color: string): React.CSSProperties {
     fontWeight: 400,
     lineHeight: 1.3,
   };
-}
-
-function EmptyPanel({ message }: { message: string }) {
-  return (
-    <div
-      style={{
-        background: "white",
-        border: "1px solid #e5e7eb",
-        borderRadius: 16,
-        boxShadow: "0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.1)",
-        minHeight: 160,
-        display: "flex",
-        flexDirection: "column",
-        alignItems: "center",
-        justifyContent: "center",
-        padding: "24px 20px",
-        textAlign: "center",
-      }}
-    >
-      <div
-        style={{
-          width: 64,
-          height: 64,
-          borderRadius: 999,
-          background: "#f3f4f6",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          marginBottom: 16,
-        }}
-      >
-        <Star size={32} color="#99a1af" />
-      </div>
-      <div
-        style={{
-          fontSize: 14,
-          lineHeight: 1.4,
-          color: "#6a7282",
-          letterSpacing: "-0.15px",
-        }}
-      >
-        {message}
-      </div>
-    </div>
-  );
 }
 
 function RemoveToast({
@@ -916,6 +875,7 @@ export default function RestaurantsPage() {
 
   const [groups, setGroups] = useState<Group[]>([]);
   const [groupId, setGroupId] = useState("");
+  const [groupModalOpen, setGroupModalOpen] = useState(false);
   const [rows, setRows] = useState<SavedRestaurantRow[]>([]);
   const [addRows, setAddRows] = useState<AddRestaurantRow[]>([]);
   const [query, setQuery] = useState("");
@@ -1007,6 +967,11 @@ export default function RestaurantsPage() {
   const filtersActive = useMemo(
     () => isFiltersActive(effectiveFilters),
     [effectiveFilters]
+  );
+
+  const activeGroup = useMemo(
+    () => groups.find((group) => group.id === groupId) ?? null,
+    [groupId, groups]
   );
 
   async function loadSavedRestaurants(nextGroupId: string) {
@@ -1372,20 +1337,12 @@ export default function RestaurantsPage() {
         return;
       }
 
-      const { data: memberships, error: membershipsError } = await supabase
-        .from("group_members")
-        .select("groups ( id, name )")
-        .eq("user_id", uid);
-
-      if (membershipsError) {
-        setError(membershipsError.message);
+      const { groups: nextGroups, error } = await loadUserActiveGroups(uid);
+      if (error) {
+        setError(error);
         setLoading(false);
         return;
       }
-
-      const nextGroups: Group[] = ((memberships ?? []) as Array<{ groups: Group | null }>)
-        .map((row) => row.groups)
-        .filter(Boolean) as Group[];
 
       setGroups(nextGroups);
       setHasGroups(nextGroups.length > 0);
@@ -1473,99 +1430,22 @@ export default function RestaurantsPage() {
       }}
     >
       <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 12,
+        <TopControlRow
+          filterActive={filtersActive}
+          filterAccentColor="#2563eb"
+          marginBottom={0}
+          onFilterClick={() => {
+            if (filtersOpen) closeFilters();
+            else openFilters();
           }}
-        >
-          <div style={{ flex: 1, display: "flex", justifyContent: "center" }}>
-            <div
-              style={{
-                position: "relative",
-                width: "min(100%, 208px)",
-              }}
-            >
-              <Users
-                size={16}
-                color="#6b7280"
-                style={{
-                  position: "absolute",
-                  left: 16,
-                  top: "50%",
-                  transform: "translateY(-50%)",
-                  pointerEvents: "none",
-                }}
-              />
-              <ChevronDown
-                size={16}
-                color="#6b7280"
-                style={{
-                  position: "absolute",
-                  right: 16,
-                  top: "50%",
-                  transform: "translateY(-50%)",
-                  pointerEvents: "none",
-                }}
-              />
-              <select
-                value={groupId}
-                onChange={(e) => setGroupId(e.target.value)}
-                disabled={!hasGroups}
-                style={{
-                  width: "100%",
-                  height: 40,
-                  borderRadius: 999,
-                  border: "1px solid #ede9fe",
-                  background: "rgba(216,180,254,0.13)",
-                  boxShadow: "0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.1)",
-                  padding: "0 38px 0 40px",
-                  fontSize: 14,
-                  fontWeight: 600,
-                  color: "#101828",
-                  appearance: "none",
-                }}
-              >
-                {!hasGroups ? (
-                  <option value="">No groups</option>
-                ) : null}
-                {groups.map((group) => (
-                  <option key={group.id} value={group.id}>
-                    {group.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            title="Filters"
-            aria-label="Filters"
-            aria-expanded={filtersOpen}
-            aria-pressed={filtersActive}
-            onClick={() => {
-              if (filtersOpen) closeFilters();
-              else openFilters();
-            }}
-            style={{
-              width: 40,
-              height: 40,
-              borderRadius: 999,
-              border: "2px solid #2563eb",
-              background: filtersActive ? "#1d4ed8" : "white",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: filtersActive ? "white" : "#2563eb",
-              cursor: "pointer",
-              flex: "0 0 auto",
-            }}
-          >
-            <Filter size={16} />
-          </button>
-        </div>
+          trigger={
+            <ActiveGroupTrigger
+              activeGroup={activeGroup}
+              disabled={!hasGroups}
+              onClick={() => setGroupModalOpen(true)}
+            />
+          }
+        />
 
         <div style={{ display: "flex", justifyContent: "center" }}>
           <div
@@ -1669,16 +1549,16 @@ export default function RestaurantsPage() {
         ) : null}
 
         {!hasGroups ? (
-          <EmptyPanel message="Join or create a group to see saved restaurants." />
+          <StatePanel message="Join or create a group to see saved restaurants." />
         ) : (
           <>
             {mode === "saved" ? (
               loadingRows ? (
-                <div style={{ opacity: 0.7, padding: "12px 2px" }}>Loading…</div>
+                <StatePanel loading message="Loading restaurants..." />
               ) : rows.length === 0 ? (
-                <EmptyPanel message="No restaurants saved" />
+                <StatePanel message="No restaurants saved" />
               ) : visibleRows.length === 0 ? (
-                <EmptyPanel message="No restaurants found. Try adjusting your filters." />
+                <StatePanel message="No restaurants found. Try adjusting your filters." />
               ) : (
                 <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                   {visibleRows.map((row) => (
@@ -1693,10 +1573,10 @@ export default function RestaurantsPage() {
                 </div>
               )
             ) : loadingAddRows ? (
-              <div style={{ opacity: 0.7, padding: "12px 2px" }}>Searching…</div>
+              <StatePanel loading message="Searching restaurants..." />
             ) : !addSearchActive ? null
             : addRows.length === 0 ? (
-              <EmptyPanel message="No restaurants found. Try a different search term or adjust your filters." />
+              <StatePanel message="No restaurants found. Try a different search term or adjust your filters." />
             ) : (
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                 {addRows.map((row) => (
@@ -1719,6 +1599,18 @@ export default function RestaurantsPage() {
           onUndo={undoDelete}
         />
       ) : null}
+
+      <ActiveGroupModal
+        open={groupModalOpen}
+        groups={groups}
+        activeGroupId={groupId}
+        onClose={() => setGroupModalOpen(false)}
+        onSelect={(nextGroupId) => {
+          setGroupId(nextGroupId);
+          setStoredActiveGroupId(nextGroupId);
+          setGroupModalOpen(false);
+        }}
+      />
 
       <RestaurantsFiltersModal
         open={filtersOpen}

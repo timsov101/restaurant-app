@@ -87,14 +87,14 @@ export default function HistoryFiltersModal({
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        padding: 16,
+        padding: 12,
       }}
     >
       <div
         onClick={(event) => event.stopPropagation()}
         style={{
           width: "min(392px, 100%)",
-          maxHeight: "min(763px, calc(100vh - 32px))",
+          maxHeight: "min(766px, calc(100vh - 24px))",
           background: "#fafafa",
           borderRadius: 12,
           border: "1px solid rgba(0,0,0,0.08)",
@@ -107,7 +107,7 @@ export default function HistoryFiltersModal({
         <div
           style={{
             flex: "0 0 auto",
-            height: 42,
+            height: 38,
             display: "flex",
             alignItems: "center",
             justifyContent: "flex-end",
@@ -145,8 +145,13 @@ export default function HistoryFiltersModal({
             padding: "16px 24px 20px",
           }}
         >
-          <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-            <section>
+          <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+            <section
+              style={{
+                paddingTop: 6,
+                borderTop: "1px solid rgba(0,0,0,0.08)",
+              }}
+            >
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", minHeight: 32 }}>
                 {sectionTitle(<Soup size={16} />, "Cuisine")}
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>

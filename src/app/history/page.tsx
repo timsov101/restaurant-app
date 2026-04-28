@@ -1,9 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { ActiveGroup, pickActiveGroupId, setStoredActiveGroupId } from "@/lib/activeGroup";
-import { Filter, Search } from "lucide-react";
+import { pickActiveGroupId, setStoredActiveGroupId } from "@/lib/activeGroup";
+import type { ActiveGroupOption } from "@/lib/activeGroupData";
+import { loadUserActiveGroups } from "@/lib/activeGroupData";
+import { Search } from "lucide-react";
+import ActiveGroupModal from "@/components/ActiveGroupModal";
+import ActiveGroupTrigger from "@/components/ActiveGroupTrigger";
+import StatePanel from "@/components/StatePanel";
+import TopControlRow from "@/components/TopControlRow";
 import HistoryCard, { HistoryRow } from "./HistoryCard";
 import { formatCuisineLabel } from "./HistoryCuisine";
 import HistoryFiltersModal, { HistoryFilters } from "./HistoryFiltersModal";
@@ -36,6 +42,9 @@ function matchesFilters(row: HistoryRow, filters: HistoryFilters) {
 }
 
 export default function HistoryPage() {
+  const [groups, setGroups] = useState<ActiveGroupOption[]>([]);
+  const [groupId, setGroupId] = useState("");
+  const [groupModalOpen, setGroupModalOpen] = useState(false);
   const [rows, setRows] = useState<HistoryRow[]>([]);
   const [q, setQ] = useState("");
   const [loading, setLoading] = useState(true);
@@ -46,52 +55,17 @@ export default function HistoryPage() {
   const [draftFilters, setDraftFilters] = useState<HistoryFilters>(defaultFilters);
   const [hasGroups, setHasGroups] = useState(true);
   const filtersActive = filters.cuisines.length > 0;
+  const activeGroup = useMemo(
+    () => groups.find((group) => group.id === groupId) ?? null,
+    [groupId, groups]
+  );
 
-  async function load() {
+  const loadHistory = useCallback(async (nextGroupId: string) => {
     setErr(null);
     setLoading(true);
 
-    const { data: sessionData } = await supabase.auth.getSession();
-    if (!sessionData.session) {
-      window.location.href = "/auth?next=%2Fhistory";
-      return;
-    }
-
-    const { data: memberships, error: membershipsError } = await supabase
-      .from("group_members")
-      .select("groups ( id, name )")
-      .eq("user_id", sessionData.session.user.id);
-
-    if (membershipsError) {
-      setLoading(false);
-      setErr(membershipsError.message);
-      setRows([]);
-      return;
-    }
-
-    const groups: ActiveGroup[] = ((memberships ?? []) as Array<{ groups: ActiveGroup | null }>)
-      .map((row) => row.groups)
-      .filter(Boolean) as ActiveGroup[];
-
-    setHasGroups(groups.length > 0);
-
-    if (groups.length === 0) {
-      setLoading(false);
-      setRows([]);
-      return;
-    }
-
-    const activeGroupId = pickActiveGroupId(groups);
-    if (!activeGroupId) {
-      setLoading(false);
-      setRows([]);
-      return;
-    }
-
-    setStoredActiveGroupId(activeGroupId);
-
     const { data, error } = await supabase.rpc("history_for_group", {
-      p_group_id: activeGroupId,
+      p_group_id: nextGroupId,
     });
     setLoading(false);
 
@@ -102,15 +76,55 @@ export default function HistoryPage() {
     }
 
     setRows((data ?? []) as HistoryRow[]);
-  }
+  }, []);
 
   useEffect(() => {
     const id = window.setTimeout(() => {
-      void load();
+      void (async () => {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const userId = sessionData.session?.user?.id ?? null;
+
+        if (!userId) {
+          window.location.href = "/auth?next=%2Fhistory";
+          return;
+        }
+
+        const { groups: nextGroups, error } = await loadUserActiveGroups(userId);
+        if (error) {
+          setLoading(false);
+          setErr(error);
+          setRows([]);
+          return;
+        }
+
+        setGroups(nextGroups);
+        setHasGroups(nextGroups.length > 0);
+
+        const activeGroupId = pickActiveGroupId(nextGroups);
+        if (!activeGroupId) {
+          setLoading(false);
+          setRows([]);
+          return;
+        }
+
+        setGroupId(activeGroupId);
+      })();
     }, 0);
 
     return () => window.clearTimeout(id);
   }, []);
+
+  useEffect(() => {
+    if (!groupId) return;
+
+    setStoredActiveGroupId(groupId);
+
+    const id = window.setTimeout(() => {
+      void loadHistory(groupId);
+    }, 0);
+
+    return () => window.clearTimeout(id);
+  }, [groupId, loadHistory]);
 
   const cuisineOptions = useMemo(() => {
     const entries = new Map<string, string>();
@@ -150,7 +164,7 @@ export default function HistoryPage() {
       return;
     }
 
-    await load();
+    await loadHistory(groupId);
   }
 
   function openFilters() {
@@ -172,80 +186,61 @@ export default function HistoryPage() {
     <main style={{ padding: 16, maxWidth: 900, margin: "0 auto" }}>
       <div style={{ fontSize: 22, fontWeight: 900, marginBottom: 12 }}>History</div>
 
-      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-        <div
-          style={{
-            flex: 1,
-            position: "relative",
-          }}
-        >
-          <Search
-            color="#9ca3af"
-            size={16}
-            style={{
-              position: "absolute",
-              left: 14,
-              top: "50%",
-              transform: "translateY(-50%)",
-              pointerEvents: "none",
-            }}
+      <TopControlRow
+        filterActive={filtersActive}
+        onFilterClick={() => {
+          if (filtersOpen) closeFilters();
+          else openFilters();
+        }}
+        trigger={
+          <ActiveGroupTrigger
+            activeGroup={activeGroup}
+            disabled={!hasGroups}
+            onClick={() => setGroupModalOpen(true)}
           />
-          <input
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search group, restaurant, cuisine, diners..."
-            style={{
-              width: "100%",
-              height: 40,
-              borderRadius: 999,
-              border: "2px solid #1d4ed8",
-              background: "white",
-              padding: "8px 14px 8px 38px",
-              boxShadow: "0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.1)",
-              outline: "none",
-              fontSize: 16,
-              fontWeight: 400,
-              letterSpacing: "-0.01em",
-              color: "#111827",
-            }}
-          />
-        </div>
+        }
+      />
 
-        <button
-          type="button"
-          title="Filters"
-          aria-label="Filters"
-          aria-expanded={filtersOpen}
-          aria-pressed={filtersActive}
-          onClick={() => {
-            if (filtersOpen) closeFilters();
-            else openFilters();
-          }}
+      <div style={{ position: "relative", marginBottom: 12 }}>
+        <Search
+          color="#9ca3af"
+          size={16}
           style={{
-            width: 40,
+            position: "absolute",
+            left: 14,
+            top: "50%",
+            transform: "translateY(-50%)",
+            pointerEvents: "none",
+          }}
+        />
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          placeholder="Search group, restaurant, cuisine, diners..."
+          style={{
+            width: "100%",
             height: 40,
             borderRadius: 999,
             border: "2px solid #1d4ed8",
-            background: filtersActive ? "#1d4ed8" : "white",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
+            background: "white",
+            padding: "8px 14px 8px 38px",
             boxShadow: "0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.1)",
-            cursor: "pointer",
-            flex: "0 0 auto",
+            outline: "none",
+            fontSize: 16,
+            fontWeight: 400,
+            letterSpacing: "-0.01em",
+            color: "#111827",
           }}
-        >
-          <Filter size={16} color={filtersActive ? "white" : "#1d4ed8"} />
-        </button>
+        />
       </div>
 
       {err && <div style={{ color: "crimson", marginBottom: 10 }}>{err}</div>}
       {loading ? (
-        <div style={{ opacity: 0.7 }}>Loading…</div>
+        <StatePanel loading message="Loading history..." />
       ) : !hasGroups ? (
-        <div style={{ opacity: 0.7 }}>Join or create a group to see history.</div>
+        <StatePanel message="Join or create a group to see history." />
       ) : filtered.length === 0 ? (
-        <div style={{ opacity: 0.7 }}>No completed dining events yet.</div>
+        <StatePanel message="No completed dining events yet." />
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {filtered.map((r) => {
@@ -263,6 +258,18 @@ export default function HistoryPage() {
           })}
         </div>
       )}
+
+      <ActiveGroupModal
+        open={groupModalOpen}
+        groups={groups}
+        activeGroupId={groupId}
+        onClose={() => setGroupModalOpen(false)}
+        onSelect={(nextGroupId) => {
+          setGroupId(nextGroupId);
+          setStoredActiveGroupId(nextGroupId);
+          setGroupModalOpen(false);
+        }}
+      />
 
       <HistoryFiltersModal
         open={filtersOpen}

@@ -1,19 +1,28 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { pickActiveGroupId, setStoredActiveGroupId } from "@/lib/activeGroup";
-import FiltersDrawer, { EatFilters } from "@/components/FiltersDrawer";
-import { Star, Leaf, DollarSign, MapPin } from "lucide-react";
+import type { ActiveGroupOption } from "@/lib/activeGroupData";
+import { loadUserActiveGroups } from "@/lib/activeGroupData";
+import EatFiltersModal, { EatFilters } from "./EatFiltersModal";
+import ActiveGroupModal from "@/components/ActiveGroupModal";
+import ActiveGroupTrigger from "@/components/ActiveGroupTrigger";
+import TopControlRow from "@/components/TopControlRow";
 import {
   Utensils,
   ChevronDown,
+  ChevronRight,
+  MapPin,
+  NotebookText,
   SlidersHorizontal,
   X,
   Search as SearchIcon,
+  Star,
+  Leaf,
 } from "lucide-react";
 
-type Group = { id: string; name: string };
+type Group = ActiveGroupOption;
 type Member = { user_id: string; role: string; display_name: string | null };
 
 type RecRow = {
@@ -26,6 +35,11 @@ type RecRow = {
   recency_score: number;
   cost_score: number;
   final_score: number;
+  last_visit_at: string | null;
+  last_visit_event_id: string | null;
+  last_visit_label: string | null;
+  last_visit_diner_count: number | null;
+  last_visit_diner_names: string[];
 };
 
 type SavedRestaurant = {
@@ -35,6 +49,154 @@ type SavedRestaurant = {
   primary_type: string | null;
   price_level: number | null;
 };
+
+type RestaurantMetaRow = {
+  id: string;
+  primary_type: string | null;
+  price_level: number | null;
+};
+
+type SavedRestaurantForGroupRow = {
+  restaurant_id: string;
+  name: string;
+  address: string | null;
+  primary_type: string | null;
+  price_level: number | null;
+};
+
+type ParticipantRow = {
+  user_id: string;
+};
+
+type ChosenVisitDetails = {
+  label: string | null;
+  dinerNames: string[];
+  dinerCount: number | null;
+};
+
+function normalizeNumber(value: unknown) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  return null;
+}
+
+function normalizeString(value: unknown) {
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    return trimmed === "" ? null : trimmed;
+  }
+  return null;
+}
+
+function normalizeStringArray(value: unknown) {
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => normalizeString(entry))
+      .filter((entry): entry is string => entry !== null);
+  }
+
+  if (typeof value === "string") {
+    return value
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean);
+  }
+
+  return [];
+}
+
+function formatRelativeVisit(value: string | null) {
+  if (!value) return null;
+
+  const visitTime = new Date(value).getTime();
+  if (Number.isNaN(visitTime)) return null;
+
+  const daysAgo = Math.floor((Date.now() - visitTime) / (1000 * 60 * 60 * 24));
+  if (daysAgo <= 0) return "Today";
+  if (daysAgo === 1) return "Yesterday";
+  if (daysAgo < 7) return `${daysAgo} days ago`;
+  if (daysAgo < 30) return `${Math.round(daysAgo / 7)} weeks ago`;
+  return `${Math.round(daysAgo / 30)} months ago`;
+}
+
+function normalizeRecRow(row: Record<string, unknown>): RecRow {
+  const lastVisitAt =
+    normalizeString(row.last_visit_at) ??
+    normalizeString(row.last_visited_at);
+
+  const lastVisitLabel =
+    normalizeString(row.last_visit_label) ??
+    normalizeString(row.last_visit_relative_label) ??
+    normalizeString(row.last_visited_label) ??
+    formatRelativeVisit(lastVisitAt);
+
+  return {
+    restaurant_id: String(row.restaurant_id ?? ""),
+    name: String(row.name ?? "Unknown"),
+    address: normalizeString(row.address),
+    price_level: normalizeNumber(row.price_level),
+    overall_avg: normalizeNumber(row.overall_avg) ?? 0,
+    nutrition_avg: normalizeNumber(row.nutrition_avg) ?? 0,
+    recency_score: normalizeNumber(row.recency_score) ?? 0,
+    cost_score: normalizeNumber(row.cost_score) ?? 0,
+    final_score: normalizeNumber(row.final_score) ?? 0,
+    last_visit_at: lastVisitAt,
+    last_visit_event_id:
+      normalizeString(row.last_visit_event_id) ??
+      normalizeString(row.last_visited_event_id),
+    last_visit_label: lastVisitLabel,
+    last_visit_diner_count:
+      normalizeNumber(row.last_visit_diner_count) ??
+      normalizeNumber(row.last_visited_diner_count),
+    last_visit_diner_names:
+      normalizeStringArray(row.last_visit_diner_names) ??
+      normalizeStringArray(row.last_visited_diner_names),
+  };
+}
+
+function normalizeSavedRestaurantForGroupRow(
+  row: Record<string, unknown>
+): SavedRestaurant {
+  return {
+    id: String(row.restaurant_id ?? ""),
+    name: String(row.name ?? "Unknown"),
+    address: normalizeString(row.address),
+    primary_type: normalizeString(row.primary_type),
+    price_level: normalizeNumber(row.price_level),
+  };
+}
+
+const defaultFilters: EatFilters = {
+  cuisines: [],
+  maxPriceLevel: null,
+  minOverall: null,
+  minNutrition: null,
+  maxDistanceMiles: null,
+};
+
+function matchesRecFilters(
+  row: RecRow,
+  filters: EatFilters,
+  recMeta: Record<string, { primary_type: string | null; price_level: number | null }>
+) {
+  const meta = recMeta[row.restaurant_id] ?? { primary_type: null, price_level: null };
+
+  if (filters.cuisines.length > 0) {
+    if (!meta.primary_type || !filters.cuisines.includes(meta.primary_type)) return false;
+  }
+
+  if (filters.maxPriceLevel != null) {
+    if (meta.price_level != null && meta.price_level > filters.maxPriceLevel) return false;
+  }
+
+  if (filters.minOverall != null && Number(row.overall_avg) < filters.minOverall) return false;
+  if (filters.minNutrition != null && Number(row.nutrition_avg) < filters.minNutrition) return false;
+
+  return true;
+}
 
 function Chip({
   label,
@@ -50,16 +212,19 @@ function Chip({
       type="button"
       onClick={onClick}
       style={{
-        padding: "10px 14px",
+        minHeight: 32,
+        padding: "6px 14px",
         borderRadius: 999,
-        border: selected ? "1px solid #1d4ed8" : "1px solid #e5e7eb",
-        background: selected ? "#1d4ed8" : "white",
-        color: selected ? "white" : "#111827",
+        border: selected ? "1px solid transparent" : "1px solid #93c5fd",
+        background: selected
+          ? "linear-gradient(90deg, #1d4ed8 0%, #2b58d0 100%)"
+          : "white",
+        color: selected ? "white" : "#1d4ed8",
         fontSize: 14,
-        fontWeight: 700,
+        fontWeight: 500,
         cursor: "pointer",
         whiteSpace: "nowrap",
-        boxShadow: selected ? "0 4px 12px rgba(29,78,216,0.25)" : "none",
+        boxShadow: "0 4px 6px rgba(0,0,0,0.1), 0 2px 4px rgba(0,0,0,0.1)",
       }}
     >
       {label}
@@ -81,11 +246,747 @@ function priceDollar(priceLevel: number | null) {
   return "$".repeat(n);
 }
 
+function metricStyle(color: string): React.CSSProperties {
+  return {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 4,
+    color,
+    fontSize: 12,
+    fontWeight: 400,
+    lineHeight: 1.3,
+  };
+}
+
+function InlineSpinner({ size = 16, color = "#6a7282" }: { size?: number; color?: string }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      aria-hidden="true"
+      style={{ display: "block" }}
+    >
+      <circle
+        cx="12"
+        cy="12"
+        r="9"
+        fill="none"
+        stroke={color}
+        strokeOpacity="0.2"
+        strokeWidth="3"
+      />
+      <path
+        d="M21 12a9 9 0 0 0-9-9"
+        fill="none"
+        stroke={color}
+        strokeLinecap="round"
+        strokeWidth="3"
+      >
+        <animateTransform
+          attributeName="transform"
+          attributeType="XML"
+          dur="0.75s"
+          from="0 12 12"
+          repeatCount="indefinite"
+          to="360 12 12"
+          type="rotate"
+        />
+      </path>
+    </svg>
+  );
+}
+
+function PickMyOwnCard({
+  restaurant,
+  selected,
+  choosing,
+  onChoose,
+}: {
+  restaurant: SavedRestaurant;
+  selected: boolean;
+  choosing: boolean;
+  onChoose: () => void;
+}) {
+  const cuisine = prettyCuisine(restaurant.primary_type) ?? "Cuisine";
+  const metrics = [
+    restaurant.price_level == null
+      ? null
+      : {
+          key: "price",
+          label: priceDollar(restaurant.price_level),
+          icon: <span style={{ fontSize: 15, lineHeight: 1 }}>$</span>,
+          color: "#2563eb",
+        },
+  ].filter(Boolean) as Array<{
+    key: string;
+    label: string | null;
+    icon: React.ReactNode;
+    color: string;
+  }>;
+
+  return (
+    <article
+      style={{
+        background: "white",
+        border: "1px solid #e5e7eb",
+        borderRadius: 12,
+        boxShadow: "0 1px 2px rgba(0,0,0,0.08)",
+        padding: 14,
+      }}
+    >
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 12,
+        }}
+      >
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: 8,
+              marginBottom: 4,
+            }}
+          >
+            <div
+              style={{
+                fontSize: 14,
+                lineHeight: "20px",
+                fontWeight: 600,
+                letterSpacing: "-0.15px",
+                color: "#0a0a0a",
+              }}
+            >
+              {restaurant.name}
+            </div>
+            {selected ? (
+              <div
+                style={{
+                  minHeight: 20,
+                  borderRadius: 999,
+                  background: "#dcfce7",
+                  color: "#008236",
+                  fontSize: 12,
+                  lineHeight: "16px",
+                  padding: "2px 8px",
+                }}
+              >
+                Selected
+              </div>
+            ) : null}
+          </div>
+
+          <div
+            style={{
+              fontSize: 12,
+              lineHeight: "16px",
+              color: "#6a7282",
+              marginBottom: restaurant.address ? 2 : 12,
+            }}
+          >
+            {cuisine}
+          </div>
+
+          {restaurant.address ? (
+            <div
+              style={{
+                fontSize: 10,
+                lineHeight: "15px",
+                color: "#99a1af",
+                letterSpacing: "0.12px",
+                marginBottom: 12,
+              }}
+            >
+              {restaurant.address}
+            </div>
+          ) : null}
+
+          {metrics.length > 0 ? (
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                flexWrap: "wrap",
+              }}
+            >
+              {metrics.map((metric) => (
+                <div key={metric.key} style={metricStyle(metric.color)}>
+                  <span
+                    style={{
+                      display: "inline-flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                    }}
+                  >
+                    {metric.icon}
+                  </span>
+                  <span style={{ color: "#364153" }}>{metric.label}</span>
+                </div>
+              ))}
+            </div>
+          ) : null}
+        </div>
+
+        <button
+          type="button"
+          onClick={onChoose}
+          disabled={choosing}
+          style={{
+            height: 40,
+            minWidth: 116,
+            padding: "0 16px",
+            borderRadius: 16,
+            border: selected ? "none" : "2px solid #1d4ed8",
+            background: selected ? "#1d4ed8" : "white",
+            color: selected ? "white" : "#1d4ed8",
+            fontSize: 14,
+            fontWeight: 500,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 8,
+            boxShadow: "0 4px 6px rgba(0,0,0,0.1), 0 2px 4px rgba(0,0,0,0.1)",
+            cursor: choosing ? "default" : "pointer",
+            whiteSpace: "nowrap",
+            flex: "0 0 auto",
+          }}
+          title="Log that we ate here today"
+        >
+          <Utensils size={16} />
+          {choosing ? "Saving…" : "Eat Here"}
+        </button>
+      </div>
+    </article>
+  );
+}
+
+function PickMyOwnModal({
+  open,
+  query,
+  loading,
+  restaurants,
+  chosenRestaurantId,
+  choosingId,
+  onClose,
+  onQueryChange,
+  onChoose,
+}: {
+  open: boolean;
+  query: string;
+  loading: boolean;
+  restaurants: SavedRestaurant[];
+  chosenRestaurantId: string | null;
+  choosingId: string | null;
+  onClose: () => void;
+  onQueryChange: (value: string) => void;
+  onChoose: (restaurantId: string) => void | Promise<void>;
+}) {
+  useEffect(() => {
+    if (!open) return;
+
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") onClose();
+    }
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open, onClose]);
+
+  if (!open) return null;
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Pick your own restaurant"
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 120,
+        background: "rgba(17,24,39,0.55)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: 12,
+      }}
+    >
+      <div
+        onClick={(event) => event.stopPropagation()}
+        style={{
+          width: "min(392px, 100%)",
+          maxHeight: "min(766px, calc(100vh - 24px))",
+          background: "#fafafa",
+          borderRadius: 12,
+          border: "1px solid rgba(0,0,0,0.08)",
+          boxShadow: "0 10px 15px rgba(0,0,0,0.1), 0 4px 6px rgba(0,0,0,0.08)",
+          overflow: "hidden",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        <div
+          style={{
+            flex: "0 0 auto",
+            padding: "12px 12px 8px 12px",
+            background: "white",
+            borderBottom: "1px solid rgba(0,0,0,0.08)",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "flex-end",
+              marginBottom: 8,
+            }}
+          >
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              title="Close"
+              style={{
+                width: 36,
+                height: 36,
+                borderRadius: 12,
+                border: "none",
+                background: "transparent",
+                color: "#4a5565",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+              }}
+            >
+              <X size={20} />
+            </button>
+          </div>
+
+          <div style={{ position: "relative" }}>
+            <SearchIcon
+              size={16}
+              color="#9ca3af"
+              style={{
+                position: "absolute",
+                left: 14,
+                top: "50%",
+                transform: "translateY(-50%)",
+                pointerEvents: "none",
+              }}
+            />
+            <input
+              value={query}
+              onChange={(event) => onQueryChange(event.target.value)}
+              placeholder="Search restaurants..."
+              style={{
+                width: "100%",
+                height: 40,
+                borderRadius: 10,
+                border: "1px solid transparent",
+                background: "#f3f4f6",
+                padding: "0 12px 0 40px",
+                fontSize: 16,
+                letterSpacing: "-0.31px",
+                color: "#111827",
+                outline: "none",
+              }}
+            />
+          </div>
+        </div>
+
+        <div
+          style={{
+            flex: "1 1 auto",
+            overflowY: "auto",
+            padding: "12px 24px 20px",
+          }}
+        >
+          {loading ? (
+            <div
+              style={{
+                minHeight: 160,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                fontSize: 14,
+                color: "#6a7282",
+              }}
+            >
+              Loading restaurants...
+            </div>
+          ) : restaurants.length === 0 ? (
+            <div
+              style={{
+                minHeight: 160,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                textAlign: "center",
+                fontSize: 14,
+                color: "#6a7282",
+                padding: "0 16px",
+              }}
+            >
+              No restaurants found. Try a different search term.
+            </div>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+              {restaurants.map((restaurant) => (
+                <PickMyOwnCard
+                  key={restaurant.id}
+                  restaurant={restaurant}
+                  selected={chosenRestaurantId === restaurant.id}
+                  choosing={choosingId === restaurant.id}
+                  onChoose={() => onChoose(restaurant.id)}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RecommendationCard({
+  row,
+  rank,
+  cuisine,
+  selected,
+  choosing,
+  onChoose,
+}: {
+  row: RecRow;
+  rank: number;
+  cuisine: string;
+  selected: boolean;
+  choosing: boolean;
+  onChoose: () => void;
+}) {
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const lastVisitText = row.last_visit_label;
+  const dinerNames = row.last_visit_diner_names;
+  const dinerCount = row.last_visit_diner_count;
+
+  const metrics = [
+    {
+      key: "overall",
+      label: Number(row.overall_avg).toFixed(1).replace(/\.0$/, ""),
+      icon: <Star size={14} color="#f59e0b" fill="none" strokeWidth={1.8} />,
+      color: "#364153",
+    },
+    {
+      key: "nutrition",
+      label: Number(row.nutrition_avg).toFixed(1).replace(/\.0$/, ""),
+      icon: <Leaf size={14} color="#16a34a" strokeWidth={1.8} />,
+      color: "#16a34a",
+    },
+    row.price_level == null
+      ? null
+      : {
+          key: "price",
+          label: priceDollar(row.price_level),
+          icon: <span style={{ fontSize: 15, lineHeight: 1 }}>$</span>,
+          color: "#2563eb",
+        },
+  ].filter(Boolean) as Array<{
+    key: string;
+    label: string | null;
+    icon: React.ReactNode;
+    color: string;
+  }>;
+
+  return (
+    <article
+      style={{
+        position: "relative",
+        background: "white",
+        border: "1px solid #e5e7eb",
+        borderRadius: 16,
+        boxShadow: "0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1)",
+        padding: 16,
+        overflow: "hidden",
+      }}
+    >
+      <div
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          height: 4,
+          background:
+            rank === 1
+              ? "linear-gradient(90deg, #1d4ed8 0%, #1e40af 100%)"
+              : "#e5e7eb",
+        }}
+      />
+
+      <div
+        style={{
+          display: "flex",
+          alignItems: "flex-start",
+          justifyContent: "space-between",
+          gap: 12,
+          paddingTop: 4,
+        }}
+      >
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              flexWrap: "wrap",
+              gap: 8,
+              marginBottom: 4,
+            }}
+          >
+            <div
+              style={{
+                fontSize: 16,
+                lineHeight: 1.5,
+                fontWeight: 600,
+                letterSpacing: "-0.31px",
+                color: "#0a0a0a",
+                minWidth: 0,
+              }}
+            >
+              <span
+                style={{
+                  color: rank === 1 ? "#1d4ed8" : "#99a1af",
+                  marginRight: 8,
+                  fontWeight: 700,
+                }}
+              >
+                #{rank}
+              </span>
+              {row.name}
+            </div>
+
+            <div
+              style={{
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 4,
+                minHeight: 20,
+                borderRadius: 999,
+                background: "#dbeafe",
+                color: "#1d4ed8",
+                fontSize: 12,
+                lineHeight: "16px",
+                padding: "2px 8px",
+                fontWeight: 700,
+              }}
+            >
+              <NotebookText size={11} strokeWidth={1.8} />
+              {Math.round(Number(row.final_score))}
+            </div>
+          </div>
+
+          <div
+            style={{
+              fontSize: 12,
+              lineHeight: "16px",
+              color: "#6a7282",
+              marginBottom: 4,
+            }}
+          >
+            {cuisine}
+          </div>
+
+          {row.address ? (
+            <div
+              style={{
+                fontSize: 10,
+                lineHeight: "15px",
+                color: "#99a1af",
+                letterSpacing: "0.12px",
+                marginBottom: 12,
+              }}
+            >
+              {row.address}
+            </div>
+          ) : (
+            <div style={{ height: 15, marginBottom: 12 }} />
+          )}
+
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 12,
+              flexWrap: "wrap",
+            }}
+          >
+            {metrics.map((metric) => (
+              <div key={metric.key} style={metricStyle(metric.color)}>
+                <span
+                  style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                >
+                  {metric.icon}
+                </span>
+                <span style={{ color: "#364153" }}>{metric.label}</span>
+              </div>
+            ))}
+          </div>
+
+        </div>
+
+        <button
+          type="button"
+          onClick={onChoose}
+          disabled={choosing}
+          style={{
+            height: 40,
+            minWidth: 112,
+            padding: "0 16px",
+            borderRadius: 16,
+            border: selected ? "none" : "2px solid #1d4ed8",
+            background: selected ? "#1d4ed8" : "white",
+            color: selected ? "white" : "#1d4ed8",
+            fontSize: 14,
+            fontWeight: 500,
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 8,
+            boxShadow: "0 4px 6px rgba(0,0,0,0.1), 0 2px 4px rgba(0,0,0,0.1)",
+            cursor: choosing ? "default" : "pointer",
+            whiteSpace: "nowrap",
+            flex: "0 0 auto",
+          }}
+          title="Log that we ate here today"
+        >
+          <Utensils size={16} />
+          {choosing ? "Saving…" : "Eat Here"}
+        </button>
+      </div>
+
+      {lastVisitText ? (
+        <div style={{ marginTop: 12 }}>
+          <button
+            type="button"
+            onClick={() => setDrawerOpen((value) => !value)}
+            style={{
+              border: "none",
+              background: "transparent",
+              padding: 0,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 4,
+              color: "#6a7282",
+              fontSize: 12,
+              lineHeight: "16px",
+              fontWeight: 500,
+              cursor: "pointer",
+            }}
+            aria-expanded={drawerOpen}
+            aria-label={`Toggle last visit details for ${row.name}`}
+          >
+            {drawerOpen ? (
+              <ChevronDown size={12} strokeWidth={2} />
+            ) : (
+              <ChevronRight size={12} strokeWidth={2} />
+            )}
+            <span>Last visit: {lastVisitText}</span>
+          </button>
+
+          {drawerOpen ? (
+            <div
+              style={{
+                marginTop: 8,
+                paddingTop: 8,
+              }}
+            >
+              <div
+                style={{
+                  borderTop: "1px solid #f3f4f6",
+                  marginBottom: 8,
+                  width: "100%",
+                }}
+              />
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "flex-start",
+                  justifyContent: "flex-start",
+                  gap: 12,
+                  flexWrap: "wrap",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 12,
+                    lineHeight: "16px",
+                    color: "#6a7282",
+                  }}
+                >
+                  {lastVisitText}
+                </div>
+
+                {dinerNames.length > 0 ? (
+                  <div
+                    style={{
+                      display: "flex",
+                      flexWrap: "wrap",
+                      gap: 8,
+                      justifyContent: "flex-start",
+                      alignItems: "center",
+                    }}
+                  >
+                    {dinerNames.map((name) => (
+                      <div
+                        key={name}
+                        style={{
+                          borderRadius: 999,
+                          padding: "4px 10px",
+                          background: "#f3f4f6",
+                          color: "#364153",
+                          fontSize: 12,
+                          fontWeight: 400,
+                          lineHeight: 1.3,
+                        }}
+                      >
+                        {name}
+                      </div>
+                    ))}
+                  </div>
+                ) : dinerCount != null ? (
+                  <div
+                    style={{
+                      fontSize: 12,
+                      lineHeight: "16px",
+                      color: "#99a1af",
+                    }}
+                  >
+                    {dinerCount} diner{dinerCount === 1 ? "" : "s"}
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+    </article>
+  );
+}
+
 export default function EatPage() {
   const [uid, setUid] = useState<string | null>(null);
 
   const [groups, setGroups] = useState<Group[]>([]);
   const [groupId, setGroupId] = useState<string>("");
+  const [groupModalOpen, setGroupModalOpen] = useState(false);
 
   const [members, setMembers] = useState<Member[]>([]);
   const [selectedMembers, setSelectedMembers] = useState<Record<string, boolean>>(
@@ -96,8 +997,6 @@ export default function EatPage() {
   const [chosenRestaurantId, setChosenRestaurantId] = useState<string | null>(null);
 
   const [chosenDetails, setChosenDetails] = useState<SavedRestaurant | null>(null);
-  const [chosenLastVisitText, setChosenLastVisitText] = useState<string | null>(null);
-
   const [recs, setRecs] = useState<RecRow[]>([]);
   const [visibleCount, setVisibleCount] = useState(5);
 
@@ -108,6 +1007,8 @@ export default function EatPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [pickedViaModal, setPickedViaModal] = useState(false);
+  const [chosenVisitDetails, setChosenVisitDetails] = useState<ChosenVisitDetails | null>(null);
+  const [chosenVisitDrawerOpen, setChosenVisitDrawerOpen] = useState(false);
 
   // Pick My Own modal state
   const [pickOpen, setPickOpen] = useState(false);
@@ -119,42 +1020,18 @@ export default function EatPage() {
   const debounceTimer = useRef<number | null>(null);
   const suppressAutoRun = useRef(false);
 
-  // filter initial states
-  const defaultFilters: EatFilters = {
-    cuisines: [],
-    maxPriceLevel: null,
-    minOverall: null,
-    minNutrition: null,
-    maxDistanceMiles: null,
-  };
-
   const [recMeta, setRecMeta] = useState<Record<string, { primary_type: string | null; price_level: number | null }>>({});
 
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filters, setFilters] = useState<EatFilters>(defaultFilters);
+  const [draftFilters, setDraftFilters] = useState<EatFilters>(defaultFilters);
 
   useEffect(() => {
     setVisibleCount(5);
   }, [filters]);
 
   const filteredRecs = useMemo(() => {
-    return recs.filter((r) => {
-      const meta = recMeta[r.restaurant_id] ?? { primary_type: null, price_level: null };
-
-      if (filters.cuisines.length > 0) {
-        if (!meta.primary_type || !filters.cuisines.includes(meta.primary_type)) return false;
-      }
-
-      if (filters.maxPriceLevel != null) {
-        // include unknown prices; only exclude when known and too expensive
-        if (meta.price_level != null && meta.price_level > filters.maxPriceLevel) return false;
-      }
-
-      if (filters.minOverall != null && Number(r.overall_avg) < filters.minOverall) return false;
-      if (filters.minNutrition != null && Number(r.nutrition_avg) < filters.minNutrition) return false;
-
-      return true;
-    });
+    return recs.filter((row) => matchesRecFilters(row, filters, recMeta));
   }, [recs, recMeta, filters]);
 
   const visible = useMemo(
@@ -175,9 +1052,15 @@ export default function EatPage() {
   const filteredSaved = useMemo(() => {
     const q = pickQuery.trim().toLowerCase();
     if (!q) return savedRestaurants;
-    return savedRestaurants.filter((r) =>
-      (r.name ?? "").toLowerCase().includes(q)
-    );
+    return savedRestaurants.filter((r) => {
+      const cuisine = prettyCuisine(r.primary_type)?.toLowerCase() ?? "";
+
+      return (
+        (r.name ?? "").toLowerCase().includes(q) ||
+        cuisine.includes(q) ||
+        (r.address ?? "").toLowerCase().includes(q)
+      );
+    });
   }, [pickQuery, savedRestaurants]);
 
   const filtersActive = useMemo(() => {
@@ -190,59 +1073,157 @@ export default function EatPage() {
     );
   }, [filters]);
 
-  function selectedParticipantIds() {
+  const draftMatchCount = useMemo(() => {
+    return recs.filter((row) => matchesRecFilters(row, draftFilters, recMeta)).length;
+  }, [draftFilters, recMeta, recs]);
+
+  const chosenRecommendation = useMemo(() => {
+    if (!pickedViaModal || !chosenRestaurantId) return null;
+    return recs.find((row) => row.restaurant_id === chosenRestaurantId) ?? null;
+  }, [chosenRestaurantId, pickedViaModal, recs]);
+
+  const activeGroup = useMemo(
+    () => groups.find((group) => group.id === groupId) ?? null,
+    [groupId, groups]
+  );
+
+  const chosenLastVisitText =
+    chosenRecommendation?.last_visit_label ?? chosenVisitDetails?.label ?? null;
+  const chosenLastVisitDinerNames =
+    chosenRecommendation?.last_visit_diner_names ?? chosenVisitDetails?.dinerNames ?? [];
+  const chosenLastVisitDinerCount =
+    chosenRecommendation?.last_visit_diner_count ?? chosenVisitDetails?.dinerCount ?? null;
+
+  function openFilters() {
+    setDraftFilters(filters);
+    setFiltersOpen(true);
+  }
+
+  function closeFilters() {
+    setFiltersOpen(false);
+    setDraftFilters(filters);
+  }
+
+  function applyFilters() {
+    setFilters(draftFilters);
+    setFiltersOpen(false);
+  }
+
+  const selectedParticipantIds = useCallback(() => {
     return Object.entries(selectedMembers)
       .filter(([, v]) => v)
       .map(([k]) => k);
-  }
+  }, [selectedMembers]);
 
-  async function loadChosenDetails(rid: string) {
-    const { data: r, error: rErr } = await supabase
-      .from("restaurants")
-      .select("id, name, address, primary_type, price_level")
-      .eq("id", rid)
-      .single();
+  const loadSavedRestaurantsForGroup = useCallback(async (nextGroupId: string) => {
+    const { data, error } = await supabase.rpc("saved_restaurants_for_group", {
+      p_group_id: nextGroupId,
+    });
 
-    if (!rErr && r) setChosenDetails(r as SavedRestaurant);
+    if (error) throw new Error(error.message);
 
+    return ((data ?? []) as SavedRestaurantForGroupRow[]).map((row) =>
+      normalizeSavedRestaurantForGroupRow(row as unknown as Record<string, unknown>)
+    );
+  }, []);
+
+  const loadChosenDetails = useCallback(async (rid: string) => {
+    if (!groupId) {
+      setChosenDetails(null);
+      return;
+    }
+
+    const savedMatch = savedRestaurants.find((restaurant) => restaurant.id === rid) ?? null;
+    if (savedMatch) {
+      setChosenDetails(savedMatch);
+      return;
+    }
+
+    try {
+      const nextSavedRestaurants = await loadSavedRestaurantsForGroup(groupId);
+      setSavedRestaurants(nextSavedRestaurants);
+      setChosenDetails(
+        nextSavedRestaurants.find((restaurant) => restaurant.id === rid) ?? null
+      );
+    } catch {
+      setChosenDetails(null);
+    }
+  }, [groupId, loadSavedRestaurantsForGroup, savedRestaurants]);
+
+  const loadChosenVisitDetails = useCallback(async (rid: string) => {
     const participantIds = selectedParticipantIds();
     if (participantIds.length === 0) {
-      setChosenLastVisitText(null);
+      setChosenVisitDetails(null);
       return;
     }
 
-    const { data: visits } = await supabase
+    const { data, error } = await supabase
       .from("restaurant_visits")
-      .select("last_visited_at")
+      .select("user_id, last_visited_at")
       .eq("restaurant_id", rid)
       .in("user_id", participantIds)
-      .order("last_visited_at", { ascending: false })
-      .limit(1);
+      .order("last_visited_at", { ascending: false });
 
-    const last = (visits?.[0] as any)?.last_visited_at ?? null;
-
-    if (!last) {
-      setChosenLastVisitText("Never");
+    if (error) {
+      setChosenVisitDetails(null);
       return;
     }
 
-    const daysAgo = Math.floor((Date.now() - new Date(last).getTime()) / (1000 * 60 * 60 * 24));
-    if (daysAgo <= 0) setChosenLastVisitText("Today");
-    else if (daysAgo === 1) setChosenLastVisitText("Yesterday");
-    else if (daysAgo < 7) setChosenLastVisitText(`${daysAgo} days ago`);
-    else if (daysAgo < 30) setChosenLastVisitText(`${Math.round(daysAgo / 7)} weeks ago`);
-    else setChosenLastVisitText(`${Math.round(daysAgo / 30)} months ago`);
-  }
+    const visits = ((data ?? []) as Array<{ user_id: string; last_visited_at: string | null }>)
+      .filter((row) => Boolean(row.last_visited_at));
+
+    if (visits.length === 0) {
+      setChosenVisitDetails(null);
+      return;
+    }
+
+    const latestVisitAt = visits[0]?.last_visited_at ?? null;
+    if (!latestVisitAt) {
+      setChosenVisitDetails(null);
+      return;
+    }
+
+    const latestVisitTime = new Date(latestVisitAt).getTime();
+    const dinerNames = visits
+      .filter((row) => {
+        const ts = row.last_visited_at ? new Date(row.last_visited_at).getTime() : Number.NaN;
+        return ts === latestVisitTime;
+      })
+      .map((row) => members.find((member) => member.user_id === row.user_id)?.display_name ?? null)
+      .filter((name): name is string => Boolean(name));
+
+    setChosenVisitDetails({
+      label: formatRelativeVisit(latestVisitAt),
+      dinerNames,
+      dinerCount: dinerNames.length > 0 ? dinerNames.length : null,
+    });
+  }, [members, selectedParticipantIds]);
 
   useEffect(() => {
     if (chosenRestaurantId) {
       loadChosenDetails(chosenRestaurantId);
     } else {
       setChosenDetails(null);
-      setChosenLastVisitText(null);
+      setChosenVisitDetails(null);
+      setChosenVisitDrawerOpen(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [chosenRestaurantId]);
+  }, [chosenRestaurantId, loadChosenDetails]);
+
+  useEffect(() => {
+    if (!pickedViaModal || !chosenRestaurantId) {
+      setChosenVisitDetails(null);
+      setChosenVisitDrawerOpen(false);
+      return;
+    }
+
+    if (chosenRecommendation) {
+      setChosenVisitDetails(null);
+      setChosenVisitDrawerOpen(false);
+      return;
+    }
+
+    void loadChosenVisitDetails(chosenRestaurantId);
+  }, [chosenRecommendation, chosenRestaurantId, loadChosenVisitDetails, pickedViaModal]);
 
   async function loadRecs(eid: string) {
     const { data, error } = await supabase.rpc("recommendations_for_event", { p_event_id: eid });
@@ -250,8 +1231,9 @@ export default function EatPage() {
       setError(error.message);
       return;
     }
-    setRecs((data ?? []) as RecRow[]);
-    const ids = ((data ?? []) as RecRow[]).map((x) => x.restaurant_id);
+    const normalizedRows = ((data ?? []) as Record<string, unknown>[]).map(normalizeRecRow);
+    setRecs(normalizedRows);
+    const ids = normalizedRows.map((row) => row.restaurant_id);
     if (ids.length) {
       const { data: m } = await supabase
         .from("restaurants")
@@ -259,7 +1241,7 @@ export default function EatPage() {
         .in("id", ids);
 
       const map: Record<string, { primary_type: string | null; price_level: number | null }> = {};
-      (m ?? []).forEach((row: any) => {
+      ((m ?? []) as RestaurantMetaRow[]).forEach((row) => {
         map[row.id] = { primary_type: row.primary_type ?? null, price_level: row.price_level ?? null };
       });
       setRecMeta(map);
@@ -298,7 +1280,7 @@ export default function EatPage() {
 
     if (error) return null;
 
-    return (data ?? []).map((r: any) => r.user_id as string);
+    return ((data ?? []) as ParticipantRow[]).map((row) => row.user_id);
   }
 
   async function createDraftEvent(gid: string, participantIds: string[]) {
@@ -315,65 +1297,6 @@ export default function EatPage() {
     if (e2) throw new Error(e2.message);
 
     return { id: ev.id as string, chosen_restaurant_id: ev.chosen_restaurant_id as string | null };
-  }
-
-  async function ensureEventAndRecs(gid: string, desiredParticipants: string[]) {
-    if (!uid) return;
-    if (desiredParticipants.length === 0) {
-      setRecs([]);
-      setEventId(null);
-      setChosenRestaurantId(null);
-      return;
-    }
-
-    setLoadingRecs(true);
-    setError(null);
-
-    try {
-      // 1) try reuse
-      const draft = await findRecentDraftEvent(gid);
-
-      if (draft?.id) {
-        setEventId(draft.id);
-        setChosenRestaurantId(draft.chosen_restaurant_id ?? null);
-
-        // restore participants from DB (so chips persist when you come back)
-        const existing = await loadParticipantsForEvent(draft.id);
-
-        if (existing && existing.length > 0) {
-          suppressAutoRun.current = true; // avoid loop while we set selection
-          const nextSel: Record<string, boolean> = {};
-          members.forEach((m) => {
-            nextSel[m.user_id] = existing.includes(m.user_id);
-          });
-          setSelectedMembers(nextSel);
-          suppressAutoRun.current = false;
-          // Now update recommendations for that state
-          await supabase.rpc("set_event_participants", {
-            p_event_id: draft.id,
-            p_user_ids: existing,
-          });
-        } else {
-          // if no participants stored, use desired
-          await supabase.rpc("set_event_participants", {
-            p_event_id: draft.id,
-            p_user_ids: desiredParticipants,
-          });
-        }
-
-        await loadRecs(draft.id);
-      } else {
-        // 2) create new draft
-        const ev = await createDraftEvent(gid, desiredParticipants);
-        setEventId(ev.id);
-        setChosenRestaurantId(ev.chosen_restaurant_id ?? null);
-        await loadRecs(ev.id);
-      }
-    } catch (e: any) {
-      setError(e.message ?? String(e));
-    } finally {
-      setLoadingRecs(false);
-    }
   }
 
   async function chooseRestaurant(rid: string) {
@@ -396,21 +1319,21 @@ export default function EatPage() {
   }
 
   async function openPickMyOwn() {
+    if (!groupId) return;
+
     setError(null);
     setPickQuery("");
     setPickOpen(true);
     setPickLoading(true);
 
-    const { data, error } = await supabase
-      .from("restaurants")
-      .select("id, name, address, primary_type, price_level")
-      .order("created_at", { ascending: false })
-      .limit(200);
-
-    setPickLoading(false);
-    if (error) return setError(error.message);
-
-    setSavedRestaurants((data ?? []) as SavedRestaurant[]);
+    try {
+      const nextSavedRestaurants = await loadSavedRestaurantsForGroup(groupId);
+      setSavedRestaurants(nextSavedRestaurants);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : String(loadError));
+    } finally {
+      setPickLoading(false);
+    }
   }
 
   // Initial: session + groups, auto-select last group
@@ -424,22 +1347,17 @@ export default function EatPage() {
       }
       setUid(u);
 
-      const { data: gm, error } = await supabase
-        .from("group_members")
-        .select("groups ( id, name )")
-        .eq("user_id", u);
-
+      const { groups: nextGroups, error } = await loadUserActiveGroups(u);
       if (error) {
-        setError(error.message);
+        setError(error);
         setLoading(false);
         return;
       }
 
-      const gs: Group[] = (gm ?? []).map((x: any) => x.groups).filter(Boolean);
-      setGroups(gs);
+      setGroups(nextGroups);
       setLoading(false);
 
-      const activeGroupId = pickActiveGroupId(gs);
+      const activeGroupId = pickActiveGroupId(nextGroups);
       if (activeGroupId) setGroupId(activeGroupId);
     })();
   }, []);
@@ -450,6 +1368,14 @@ export default function EatPage() {
     if (!groupId) return;
 
     setStoredActiveGroupId(groupId);
+    setPickOpen(false);
+    setPickLoading(false);
+    setSavedRestaurants([]);
+    setPickQuery("");
+    setPickedViaModal(false);
+    setChosenDetails(null);
+    setChosenVisitDetails(null);
+    setChosenVisitDrawerOpen(false);
 
     (async () => {
       setError(null);
@@ -517,8 +1443,8 @@ export default function EatPage() {
 
           await loadRecs(created.id);
         }
-      } catch (e: any) {
-        setError(e.message ?? String(e));
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : String(e));
       } finally {
         setLoadingRecs(false);
       }
@@ -564,62 +1490,61 @@ export default function EatPage() {
 
   return (
     <main style={{ padding: 16, maxWidth: 900, margin: "0 auto" }}>
-      {/* Group selector + filter icon (filter UI coming next) */}
-      <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 10 }}>
-        <div style={{ flex: 1 }}>
-          <select
-            value={groupId}
-            onChange={(e) => setGroupId(e.target.value)}
-            style={{
-              width: "100%",
-              padding: "14px 14px",
-              borderRadius: 999,
-              border: "2px solid #1d4ed8",
-              background: "white",
-              fontSize: 16,
-              fontWeight: 800,
-              color: "#111827",
-              boxShadow: "0 2px 10px rgba(0,0,0,0.04)",
-            }}
-          >
-            <option value="">Select a group…</option>
-            {groups.map((g) => (
-              <option key={g.id} value={g.id}>
-                {g.name}
-              </option>
-            ))}
-          </select>
-        </div>
+      <TopControlRow
+        filterActive={filtersActive}
+        marginBottom={10}
+        onFilterClick={() => {
+          if (filtersOpen) closeFilters();
+          else openFilters();
+        }}
+        trigger={
+          <ActiveGroupTrigger
+            activeGroup={activeGroup}
+            disabled={groups.length === 0}
+            onClick={() => setGroupModalOpen(true)}
+          />
+        }
+      />
 
-        <button
-          type="button"
-          title="Filters"
+      {error && <div style={{ color: "crimson", marginBottom: 10 }}>{error}</div>}
+      {loadingRecs ? (
+        <div
+          aria-label="Updating recommendations"
+          role="status"
           style={{
-            width: 52,
-            height: 52,
-            borderRadius: 999,
-            border: "2px solid #1d4ed8",
-            background: filtersActive ? "#1d4ed8" : "white",
+            position: "fixed",
+            inset: 0,
+            zIndex: 110,
             display: "flex",
             alignItems: "center",
             justifyContent: "center",
-            boxShadow: "0 2px 10px rgba(0,0,0,0.04)",
-            cursor: "pointer",
+            background: "rgba(250,250,250,0.35)",
+            pointerEvents: "none",
           }}
-          onClick={() => setFiltersOpen(true)}
         >
-          <SlidersHorizontal color={filtersActive ? "white" : "#1d4ed8"} />
-        </button>
-      </div>
-
-      {error && <div style={{ color: "crimson", marginBottom: 10 }}>{error}</div>}
+          <div
+            style={{
+              width: 56,
+              height: 56,
+              borderRadius: 999,
+              background: "rgba(255,255,255,0.92)",
+              boxShadow: "0 10px 15px rgba(0,0,0,0.08), 0 4px 6px rgba(0,0,0,0.08)",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+            }}
+          >
+            <InlineSpinner size={22} color="#4a5565" />
+          </div>
+        </div>
+      ) : null}
 
       {/* Diners chips */}
       {loadingMembers ? (
         <div style={{ opacity: 0.7, marginBottom: 12 }}>Loading diners…</div>
       ) : members.length > 0 ? (
         <div style={{ marginBottom: 14 }}>
-          <div style={{ display: "flex", gap: 10, overflowX: "auto", paddingBottom: 6 }}>
+          <div style={{ display: "flex", gap: 8, overflowX: "auto", padding: "0 4px 6px" }}>
             {members.map((m) => {
               const label = m.display_name ?? "Unknown";
               const selected = Boolean(selectedMembers[m.user_id]);
@@ -646,50 +1571,70 @@ export default function EatPage() {
       {pickedViaModal && chosenDetails && (
         <div
           style={{
-            borderRadius: 18,
-            padding: 16,
+            borderRadius: 16,
+            padding: 18,
             background: "white",
             border: "2px solid #1d4ed8",
-            boxShadow: "0 10px 24px rgba(17,24,39,0.06)",
+            boxShadow: "0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -2px rgba(0,0,0,0.1)",
             marginBottom: 14,
           }}
         >
           <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <div style={{ fontSize: 22, fontWeight: 900 }}>{chosenDetails.name}</div>
+              <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 4 }}>
+                <div style={{ fontSize: 16, lineHeight: "24px", fontWeight: 600, letterSpacing: "-0.31px", color: "#0a0a0a" }}>
+                  {chosenDetails.name}
+                </div>
                 <div
                   style={{
-                    padding: "6px 10px",
+                    minHeight: 20,
                     borderRadius: 999,
                     background: "#dcfce7",
-                    color: "#166534",
-                    fontWeight: 900,
-                    fontSize: 13,
+                    color: "#008236",
+                    fontSize: 12,
+                    lineHeight: "16px",
+                    padding: "2px 8px",
                   }}
                 >
                   Your Pick
                 </div>
               </div>
 
-              <div style={{ marginTop: 6, fontSize: 16, color: "#6b7280", fontWeight: 700 }}>
+              <div style={{ fontSize: 12, lineHeight: "16px", color: "#6a7282", marginBottom: 4 }}>
                 {prettyCuisine(chosenDetails.primary_type) ?? "Cuisine"}
               </div>
 
               {chosenDetails.address && (
-                <div style={{ marginTop: 6, fontSize: 14, color: "#9ca3af", fontWeight: 700 }}>
+                <div
+                  style={{
+                    fontSize: 10,
+                    lineHeight: "15px",
+                    color: "#99a1af",
+                    letterSpacing: "0.12px",
+                    marginBottom: 12,
+                  }}
+                >
                   {chosenDetails.address}
                 </div>
               )}
 
-              <div style={{ marginTop: 10, display: "flex", gap: 18, flexWrap: "wrap", fontWeight: 800 }}>
-                <div style={{ color: "#2563eb" }}>$ {priceDollar(chosenDetails.price_level) ?? "—"}</div>
-                <div style={{ color: "#7c3aed" }}>◎ — mi</div>
+              <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+                <div style={metricStyle("#2563eb")}>
+                  <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", fontSize: 15, lineHeight: 1 }}>
+                    $
+                  </span>
+                  <span style={{ color: "#364153" }}>{priceDollar(chosenDetails.price_level) ?? "—"}</span>
+                </div>
+                {chosenRecommendation ? (
+                  <div style={metricStyle("#a855f7")}>
+                    <span style={{ display: "inline-flex", alignItems: "center", justifyContent: "center" }}>
+                      <MapPin size={14} color="#a855f7" strokeWidth={1.8} />
+                    </span>
+                    <span style={{ color: "#364153" }}>Recommended</span>
+                  </div>
+                ) : null}
               </div>
 
-              <div style={{ marginTop: 10, color: "#6b7280", fontWeight: 800 }}>
-                › Last visit: {chosenLastVisitText ?? "—"}
-              </div>
             </div>
 
             <button
@@ -697,17 +1642,20 @@ export default function EatPage() {
               onClick={() => chooseRestaurant(chosenDetails.id)}
               disabled={choosingId !== null}
               style={{
-                height: 56,
-                padding: "0 18px",
-                borderRadius: 999,
-                border: "2px solid #1d4ed8",
+                height: 40,
+                minWidth: 112,
+                padding: "0 16px",
+                borderRadius: 16,
+                border: "none",
                 background: "#1d4ed8",
                 color: "white",
-                fontWeight: 900,
+                fontSize: 14,
+                fontWeight: 500,
                 display: "inline-flex",
                 alignItems: "center",
-                gap: 10,
-                boxShadow: "0 8px 18px rgba(29,78,216,0.16)",
+                justifyContent: "center",
+                gap: 8,
+                boxShadow: "0 4px 6px rgba(0,0,0,0.1), 0 2px 4px rgba(0,0,0,0.1)",
                 cursor: choosingId ? "default" : "pointer",
                 whiteSpace: "nowrap",
               }}
@@ -717,6 +1665,122 @@ export default function EatPage() {
               {choosingId === chosenDetails.id ? "Saving…" : "Eat Here"}
             </button>
           </div>
+
+          {chosenLastVisitText ? (
+            <div style={{ marginTop: 12 }}>
+              <button
+                type="button"
+                onClick={() => setChosenVisitDrawerOpen((value) => !value)}
+                style={{
+                  border: "none",
+                  background: "transparent",
+                  padding: 0,
+                  display: "inline-flex",
+                  alignItems: "center",
+                  gap: 4,
+                  color: "#6a7282",
+                  fontSize: 12,
+                  lineHeight: "16px",
+                  fontWeight: 500,
+                  cursor: "pointer",
+                }}
+                aria-expanded={chosenVisitDrawerOpen}
+                aria-label={`Toggle last visit details for ${chosenDetails.name}`}
+              >
+                {chosenVisitDrawerOpen ? (
+                  <ChevronDown size={12} strokeWidth={2} />
+                ) : (
+                  <ChevronRight size={12} strokeWidth={2} />
+                )}
+                <span>Last visit: {chosenLastVisitText}</span>
+              </button>
+
+              {chosenVisitDrawerOpen ? (
+                <div
+                  style={{
+                    marginTop: 8,
+                    paddingTop: 8,
+                  }}
+                >
+                  <div
+                    style={{
+                      borderTop: "1px solid #f3f4f6",
+                      marginBottom: 8,
+                      width: "100%",
+                    }}
+                  />
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "flex-start",
+                      justifyContent: "flex-start",
+                      gap: 12,
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 12,
+                        lineHeight: "16px",
+                        color: "#6a7282",
+                      }}
+                    >
+                      {chosenLastVisitText}
+                    </div>
+
+                    {chosenLastVisitDinerNames.length > 0 ? (
+                      <div
+                        style={{
+                          display: "flex",
+                          flexWrap: "wrap",
+                          gap: 8,
+                          justifyContent: "flex-start",
+                          alignItems: "center",
+                        }}
+                      >
+                        {chosenLastVisitDinerNames.map((name) => (
+                          <div
+                            key={name}
+                            style={{
+                              borderRadius: 999,
+                              padding: "4px 10px",
+                              background: "#f3f4f6",
+                              color: "#364153",
+                              fontSize: 12,
+                              fontWeight: 400,
+                              lineHeight: 1.3,
+                            }}
+                          >
+                            {name}
+                          </div>
+                        ))}
+                      </div>
+                    ) : chosenLastVisitDinerCount != null ? (
+                      <div
+                        style={{
+                          fontSize: 12,
+                          lineHeight: "16px",
+                          color: "#99a1af",
+                        }}
+                      >
+                        {chosenLastVisitDinerCount} diner{chosenLastVisitDinerCount === 1 ? "" : "s"}
+                      </div>
+                    ) : (
+                      <div
+                        style={{
+                          fontSize: 12,
+                          lineHeight: "16px",
+                          color: "#99a1af",
+                        }}
+                      >
+                        Details unavailable
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       )}
 
@@ -725,119 +1789,18 @@ export default function EatPage() {
         <>
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             {visible.map((r, idx) => (
-              <div
+              <RecommendationCard
                 key={r.restaurant_id}
-                style={{
-                  borderRadius: 18,
-                  padding: 16,
-                  background: "white",
-                  boxShadow: "0 10px 24px rgba(17,24,39,0.06)",
-                  border: "1px solid #eef2ff",
+                row={r}
+                rank={idx + 1}
+                cuisine={prettyCuisine(recMeta[r.restaurant_id]?.primary_type ?? null) ?? "Cuisine"}
+                selected={chosenRestaurantId === r.restaurant_id}
+                choosing={choosingId === r.restaurant_id}
+                onChoose={() => {
+                  setPickedViaModal(false);
+                  chooseRestaurant(r.restaurant_id);
                 }}
-              >
-                <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: "flex", alignItems: "baseline", gap: 10 }}>
-                      <div style={{ fontSize: 22, fontWeight: 900, color: "#111827" }}>
-                        <span style={{ opacity: 0.35, marginRight: 8 }}>#{idx + 1}</span>
-                        {r.name}
-                      </div>
-
-                      <div
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 6,
-                          padding: "6px 10px",
-                          borderRadius: 999,
-                          background: "#dbeafe",
-                          color: "#1d4ed8",
-                          fontWeight: 900,
-                        }}
-                      >
-                        {Math.round(Number(r.final_score))}
-                      </div>
-                    </div>
-
-                    <div style={{ marginTop: 6, fontSize: 16, color: "#6b7280", fontWeight: 550 }}>
-                      {prettyCuisine(recMeta[r.restaurant_id]?.primary_type ?? null) ?? ""}
-                    </div>
-
-                    {r.address && (
-                      <div style={{ marginTop: 6, fontSize: 14, color: "#9ca3af", fontWeight: 500 }}>
-                        {r.address}
-                      </div>
-                    )}
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setPickedViaModal(false);
-                      chooseRestaurant(r.restaurant_id);
-                    }}
-                    disabled={choosingId !== null}
-                    style={{
-                      height: 56,
-                      padding: "0 16px",
-                      borderRadius: 999,
-                      border: "2px solid #1d4ed8",
-                      background: chosenRestaurantId === r.restaurant_id ? "#1d4ed8" : "white",
-                      color: chosenRestaurantId === r.restaurant_id ? "white" : "#1d4ed8",
-                      fontWeight: 800,
-                      display: "inline-flex",
-                      alignItems: "center",
-                      gap: 10,
-                      boxShadow: "0 8px 18px rgba(29,78,216,0.16)",
-                      cursor: choosingId ? "default" : "pointer",
-                      whiteSpace: "nowrap",
-                    }}
-                    title="Log that we ate here today"
-                  >
-                    <Utensils size={18} />
-                    {choosingId === r.restaurant_id ? "Saving…" : "Eat Here"}
-                  </button>
-                </div>
-
-                <div
-                  style={{
-                    marginTop: 14,
-                    display: "flex",
-                    gap: 18,
-                    flexWrap: "wrap",
-                    fontWeight: 500,
-                    alignItems: "center",
-                  }}
-                >
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ color: "#f59e0b", display: "inline-flex", alignItems: "center" }}>
-                      <Star size={16} fill="#f59e0b" />
-                    </span>
-                    <span style={{ color: "#111827" }}>{Number(r.overall_avg).toFixed(1)}</span>
-                  </div>
-
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ color: "#10b981", display: "inline-flex", alignItems: "center" }}>
-                      <Leaf size={16} fill="#10b981" />
-                    </span>
-                    <span style={{ color: "#111827" }}>{Number(r.nutrition_avg).toFixed(1)}</span>
-                  </div>
-
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ color: "#2563eb", display: "inline-flex", alignItems: "center" }}>
-                      <DollarSign size={16} />
-                    </span>
-                    <span style={{ color: "#111827" }}>{priceDollar(r.price_level) ?? "—"}</span>
-                  </div>
-
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ color: "#7c3aed", display: "inline-flex", alignItems: "center" }}>
-                      <MapPin size={16} />
-                    </span>
-                    <span style={{ color: "#111827" }}>— mi</span>
-                  </div>
-                </div>
-              </div>
+              />
             ))}
           </div>
 
@@ -894,168 +1857,44 @@ export default function EatPage() {
         </>
       )}
 
-      {/* Pick My Own modal */}
-      {pickOpen && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: 100,
-            background: "rgba(17,24,39,0.55)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: 14,
-          }}
-          onClick={() => setPickOpen(false)}
-        >
-          <div
-            style={{
-              width: "min(720px, 100%)",
-              maxHeight: "80vh",
-              background: "white",
-              borderRadius: 18,
-              padding: 14,
-              boxShadow: "0 30px 60px rgba(0,0,0,0.25)",
-              position: "relative",
-              overflow: "hidden",
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <button
-              type="button"
-              onClick={() => setPickOpen(false)}
-              style={{
-                position: "absolute",
-                top: 10,
-                right: 10,
-                width: 36,
-                height: 36,
-                borderRadius: 999,
-                border: "1px solid #e5e7eb",
-                background: "white",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "center",
-                cursor: "pointer",
-              }}
-              aria-label="Close"
-              title="Close"
-            >
-              <X />
-            </button>
+      <PickMyOwnModal
+        open={pickOpen}
+        query={pickQuery}
+        loading={pickLoading}
+        restaurants={filteredSaved}
+        chosenRestaurantId={chosenRestaurantId}
+        choosingId={choosingId}
+        onClose={() => setPickOpen(false)}
+        onQueryChange={setPickQuery}
+        onChoose={async (restaurantId) => {
+          setPickedViaModal(true);
+          await chooseRestaurant(restaurantId);
+          setPickOpen(false);
+        }}
+      />
 
-            <div style={{ marginBottom: 12, paddingRight: 44 }}>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 10,
-                  border: "2px solid #c7d2fe",
-                  borderRadius: 14,
-                  padding: "10px 12px",
-                }}
-              >
-                <SearchIcon color="#6b7280" />
-                <input
-                  value={pickQuery}
-                  onChange={(e) => setPickQuery(e.target.value)}
-                  placeholder="Search restaurants…"
-                  style={{
-                    border: "none",
-                    outline: "none",
-                    width: "100%",
-                    fontSize: 16,
-                    fontWeight: 700,
-                    color: "#111827",
-                  }}
-                />
-              </div>
-            </div>
+      <ActiveGroupModal
+        open={groupModalOpen}
+        groups={groups}
+        activeGroupId={groupId}
+        onClose={() => setGroupModalOpen(false)}
+        onSelect={(nextGroupId) => {
+          setGroupId(nextGroupId);
+          setStoredActiveGroupId(nextGroupId);
+          setGroupModalOpen(false);
+        }}
+      />
 
-            <div style={{ overflowY: "auto", maxHeight: "calc(80vh - 92px)", paddingRight: 4 }}>
-              {pickLoading ? (
-                <div style={{ padding: 12, opacity: 0.7 }}>Loading…</div>
-              ) : filteredSaved.length === 0 ? (
-                <div style={{ padding: 12, opacity: 0.7 }}>No matches.</div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                  {filteredSaved.map((r) => {
-                    const cuisine = prettyCuisine(r.primary_type) ?? "Cuisine";
-                    const dollars = priceDollar(r.price_level) ?? "—";
-                    const isChosen = chosenRestaurantId === r.id;
-
-                    return (
-                      <div
-                        key={r.id}
-                        style={{
-                          borderRadius: 16,
-                          border: "1px solid #e5e7eb",
-                          padding: 14,
-                          background: "white",
-                        }}
-                      >
-                        <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ fontSize: 18, fontWeight: 900 }}>{r.name}</div>
-                            <div style={{ marginTop: 4, fontSize: 14, color: "#6b7280", fontWeight: 700 }}>
-                              {cuisine}
-                            </div>
-
-                            <div style={{ marginTop: 10, display: "flex", gap: 16, flexWrap: "wrap", fontWeight: 800 }}>
-                              <div style={{ color: "#2563eb" }}>$ {dollars}</div>
-                            </div>
-                          </div>
-
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              setPickedViaModal(true);
-                              await chooseRestaurant(r.id);
-                              setPickOpen(false);
-                            }}
-                            disabled={choosingId !== null}
-                            style={{
-                              height: 56,
-                              padding: "0 16px",
-                              borderRadius: 999,
-                              border: "2px solid #1d4ed8",
-                              background: isChosen ? "#1d4ed8" : "white",
-                              color: isChosen ? "white" : "#1d4ed8",
-                              fontWeight: 900,
-                              display: "inline-flex",
-                              alignItems: "center",
-                              gap: 10,
-                              opacity: 1,
-                              boxShadow: "0 8px 18px rgba(29,78,216,0.16)",
-                              cursor: choosingId ? "default" : "pointer",
-                              whiteSpace: "nowrap",
-                            }}
-                          >
-                            <Utensils size={18} />
-                            Eat Here
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      <FiltersDrawer
+      <EatFiltersModal
         open={filtersOpen}
-        onClose={() => setFiltersOpen(false)}
+        onClose={closeFilters}
         cuisineOptions={cuisineOptions}
-        filters={filters}
-        setFilters={setFilters}
-        onReset={() => setFilters(defaultFilters)}
-        matchCount={filteredRecs.length}
+        filters={draftFilters}
+        matchCount={draftMatchCount}
+        hasDistanceData={false}
+        onChange={setDraftFilters}
+        onReset={() => setDraftFilters(defaultFilters)}
+        onApply={applyFilters}
       />
     </main>
   );

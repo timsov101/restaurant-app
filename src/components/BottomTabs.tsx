@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import type { LucideIcon } from "lucide-react";
 import { Utensils, Search, History, Users } from "lucide-react";
 
 type NavItem = {
   href: string;
   label: string;
-  Icon: any;
+  Icon: LucideIcon;
 };
 
 const navItems: NavItem[] = [
@@ -21,7 +22,7 @@ const navItems: NavItem[] = [
 function isActive(pathname: string, href: string) {
   if (href === "/eat") return pathname === "/eat" || pathname.startsWith("/events");
 
-  // Temporary: Diners tab currently redirects to /groups
+  // Keep the legacy /groups route highlighted while it redirects to /diners.
   if (href === "/diners") return pathname === "/diners" || pathname.startsWith("/groups");
 
   return pathname === href || pathname.startsWith(href + "/");

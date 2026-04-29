@@ -13,6 +13,23 @@ export type PlaceSearchResult = {
   distance_miles: number | null;
 };
 
+export type AreaAutocompleteSuggestion = {
+  place_id: string;
+  label: string;
+  types: string[];
+  source?: "places" | "geocode" | "derived";
+  query_text?: string;
+};
+
+export type AreaPlaceResult = {
+  label: string;
+  place_id: string;
+  lat: number | null;
+  lng: number | null;
+  types: string[];
+  formatted_address: string | null;
+};
+
 function parsePricePart(units: unknown, nanos: unknown) {
   const parsedUnits =
     typeof units === "number"
@@ -183,6 +200,134 @@ export function normalizePlaceFromGoogle(
       anchorLat != null && anchorLng != null && lat != null && lng != null
         ? haversineMiles(anchorLat, anchorLng, lat, lng)
         : null,
+  };
+}
+
+export function parseGoogleLocation(
+  value: unknown
+): { lat: number | null; lng: number | null } {
+  const location =
+    value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+
+  return {
+    lat: location && typeof location.latitude === "number" ? location.latitude : null,
+    lng: location && typeof location.longitude === "number" ? location.longitude : null,
+  };
+}
+
+export function normalizeAreaAutocompleteSuggestion(
+  value: Record<string, unknown>
+): AreaAutocompleteSuggestion | null {
+  const prediction =
+    value.placePrediction && typeof value.placePrediction === "object"
+      ? (value.placePrediction as Record<string, unknown>)
+      : null;
+
+  const placeId = typeof prediction?.placeId === "string" ? prediction.placeId.trim() : "";
+  const text =
+    prediction?.text && typeof prediction.text === "object"
+      ? (prediction.text as Record<string, unknown>)
+      : null;
+  const label = typeof text?.text === "string" ? text.text.trim() : "";
+  const types = Array.isArray(prediction?.types)
+    ? prediction.types.filter((entry): entry is string => typeof entry === "string")
+    : [];
+
+  if (!placeId || !label) return null;
+
+  return {
+    place_id: placeId,
+    label,
+    types,
+    source: "places",
+  };
+}
+
+export function normalizeAreaPlaceFromGoogle(
+  place: Record<string, unknown>
+): AreaPlaceResult {
+  const { lat, lng } = parseGoogleLocation(place.location);
+  const displayName =
+    place.displayName && typeof place.displayName === "object"
+      ? (place.displayName as Record<string, unknown>)
+      : null;
+  const name = typeof displayName?.text === "string" ? displayName.text.trim() : "";
+  const formattedAddress =
+    typeof place.formattedAddress === "string" ? place.formattedAddress.trim() : null;
+
+  return {
+    label: formattedAddress || name,
+    place_id: String(place.id ?? "").trim(),
+    lat,
+    lng,
+    types: Array.isArray(place.types)
+      ? place.types.filter((entry): entry is string => typeof entry === "string")
+      : [],
+    formatted_address: formattedAddress,
+  };
+}
+
+const ACCEPTED_AREA_TYPES = new Set([
+  "postal_code",
+  "postal_town",
+  "neighborhood",
+  "sublocality",
+  "sublocality_level_1",
+  "sublocality_level_2",
+  "sublocality_level_3",
+  "sublocality_level_4",
+  "sublocality_level_5",
+  "locality",
+  "administrative_area_level_1",
+  "administrative_area_level_2",
+  "administrative_area_level_3",
+  "administrative_area_level_4",
+  "administrative_area_level_5",
+]);
+
+const REJECTED_ADDRESS_TYPES = new Set([
+  "street_address",
+  "premise",
+  "subpremise",
+  "route",
+  "intersection",
+  "floor",
+  "room",
+  "establishment",
+  "point_of_interest",
+]);
+
+export function isRecognizedDiningArea(types: string[]) {
+  const normalized = types.map((entry) => entry.toLowerCase());
+
+  if (normalized.some((entry) => REJECTED_ADDRESS_TYPES.has(entry))) {
+    return false;
+  }
+
+  return normalized.some((entry) => ACCEPTED_AREA_TYPES.has(entry));
+}
+
+export function normalizeGeocodeAreaSuggestion(
+  value: Record<string, unknown>
+): AreaAutocompleteSuggestion | null {
+  const placeId = typeof value.place_id === "string" ? value.place_id.trim() : "";
+  const label =
+    typeof value.formatted_address === "string"
+      ? value.formatted_address.trim()
+      : typeof value.address === "string"
+        ? value.address.trim()
+        : "";
+  const types = Array.isArray(value.types)
+    ? value.types.filter((entry): entry is string => typeof entry === "string")
+    : [];
+
+  if (!placeId || !label || !isRecognizedDiningArea(types)) return null;
+
+  return {
+    place_id: placeId,
+    label,
+    types,
+    source: "geocode",
   };
 }
 

@@ -184,8 +184,6 @@ export default function HistoryPage() {
 
   return (
     <main style={{ padding: 16, maxWidth: 900, margin: "0 auto" }}>
-      <div style={{ fontSize: 22, fontWeight: 900, marginBottom: 12 }}>History</div>
-
       <TopControlRow
         filterActive={filtersActive}
         onFilterClick={() => {

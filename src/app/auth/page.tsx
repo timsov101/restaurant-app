@@ -1,8 +1,7 @@
 "use client";
 
-import { Auth } from "@supabase/auth-ui-react";
-import { ThemeSupa } from "@supabase/auth-ui-shared";
-import { ArrowLeft, Users } from "lucide-react";
+import { ArrowLeft } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { type CSSProperties, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
@@ -57,6 +56,22 @@ function inputStyle(): CSSProperties {
   };
 }
 
+function normalInputStyle(): CSSProperties {
+  return {
+    width: "100%",
+    height: 48,
+    borderRadius: 10,
+    border: "1px solid #d1d5dc",
+    background: "#ffffff",
+    padding: "0 12px",
+    fontSize: 16,
+    lineHeight: "20px",
+    color: "#213166",
+    outline: "none",
+    boxSizing: "border-box",
+  };
+}
+
 function primaryButtonStyle(disabled: boolean): CSSProperties {
   return {
     width: "100%",
@@ -72,6 +87,31 @@ function primaryButtonStyle(disabled: boolean): CSSProperties {
     cursor: disabled ? "default" : "pointer",
     opacity: disabled ? 0.7 : 1,
   };
+}
+
+function normalPrimaryButtonStyle(disabled: boolean): CSSProperties {
+  return {
+    width: "100%",
+    minHeight: 48,
+    border: "none",
+    borderRadius: 10,
+    background: "#fb7f19",
+    color: "white",
+    fontSize: 18,
+    lineHeight: "28px",
+    fontWeight: 500,
+    letterSpacing: "-0.44px",
+    cursor: disabled ? "default" : "pointer",
+    opacity: disabled ? 0.72 : 1,
+  };
+}
+
+function normalAuthHref(mode: "signin" | "signup", nextUrl: string | null) {
+  const params = new URLSearchParams();
+  if (mode === "signup") params.set("mode", "signup");
+  if (nextUrl) params.set("next", nextUrl);
+  const query = params.toString();
+  return query ? `/auth?${query}` : "/auth";
 }
 
 function normalizeEmail(value: string) {
@@ -91,6 +131,7 @@ export default function AuthPage() {
 
   const searchParams = useSearchParams();
   const nextUrl = searchParams.get("next");
+  const normalAuthMode = searchParams.get("mode") === "signup" ? "signup" : "signin";
   const inviteMode = searchParams.get("mode") === "signup" ? "signup" : "signin";
   const groupName = searchParams.get("groupName") ?? "your group";
   const inviteContext =
@@ -104,6 +145,8 @@ export default function AuthPage() {
 
       if (has && nextUrl) {
         window.location.href = decodeURIComponent(nextUrl);
+      } else if (has && !inviteContext) {
+        window.location.href = "/eat";
       }
     });
 
@@ -114,13 +157,15 @@ export default function AuthPage() {
 
       if (has && nextUrl) {
         window.location.href = decodeURIComponent(nextUrl);
+      } else if (has && !inviteContext) {
+        window.location.href = "/eat";
       }
     });
 
     return () => {
       sub.subscription.unsubscribe();
     };
-  }, [nextUrl]);
+  }, [inviteContext, nextUrl]);
 
   const nextInvitePath = nextUrl ? decodeURIComponent(nextUrl) : "/invite";
   const alternateMode = inviteMode === "signup" ? "signin" : "signup";
@@ -224,12 +269,111 @@ export default function AuthPage() {
     window.location.href = nextInvitePath;
   }
 
+  async function handleNormalSignUp(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const normalizedEmail = normalizeEmail(signupEmail);
+    const displayName = signupDisplayName.trim();
+    const password = signupPassword;
+
+    if (!normalizedEmail) {
+      setError("Please enter your email address.");
+      return;
+    }
+
+    if (!displayName) {
+      setError("Please enter your display name.");
+      return;
+    }
+
+    if (!password) {
+      setError("Please enter your password.");
+      return;
+    }
+
+    setAuthenticating(true);
+    setError(null);
+
+    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+      email: normalizedEmail,
+      password,
+    });
+
+    if (signUpError) {
+      setAuthenticating(false);
+      setError(signUpError.message);
+      return;
+    }
+
+    const userId = signUpData.user?.id ?? signUpData.session?.user?.id ?? null;
+    if (!userId) {
+      setAuthenticating(false);
+      setError("Account created, but no user session was returned.");
+      return;
+    }
+
+    const { error: profileError } = await supabase
+      .from("profiles")
+      .upsert({ id: userId, display_name: displayName }, { onConflict: "id" });
+
+    if (profileError) {
+      await supabase.auth.signOut();
+      setAuthenticating(false);
+      setError(profileError.message);
+      return;
+    }
+
+    window.location.href = nextUrl ? decodeURIComponent(nextUrl) : "/diners";
+  }
+
+  async function handleNormalSignIn(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const normalizedEmail = normalizeEmail(signinEmail);
+    const password = signinPassword;
+
+    if (!normalizedEmail) {
+      setError("Please enter your email address.");
+      return;
+    }
+
+    if (!password) {
+      setError("Please enter your password.");
+      return;
+    }
+
+    setAuthenticating(true);
+    setError(null);
+
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email: normalizedEmail,
+      password,
+    });
+
+    if (signInError) {
+      setAuthenticating(false);
+      setError(signInError.message);
+      return;
+    }
+
+    window.location.href = nextUrl ? decodeURIComponent(nextUrl) : "/eat";
+  }
+
   if (isSignedIn && !nextUrl) {
     return (
-      <main style={{ padding: 24, maxWidth: 720, margin: "0 auto" }}>
-        <h1>Signed in</h1>
-        <p>{email}</p>
-        <button onClick={async () => supabase.auth.signOut()}>Sign out</button>
+      <main
+        style={{
+          minHeight: "100vh",
+          background: "#fcf5e8",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          color: "#213166",
+          fontSize: 16,
+          lineHeight: "24px",
+        }}
+      >
+        Opening Whistle{email ? ` for ${email}` : ""}...
       </main>
     );
   }
@@ -267,21 +411,14 @@ export default function AuthPage() {
             <span>Back</span>
           </button>
 
-          <div
-            style={{
-              width: 64,
-              height: 64,
-              borderRadius: 999,
-              background: "#d8b4fe",
-              boxShadow: "0 10px 15px rgba(0,0,0,0.1), 0 4px 6px rgba(0,0,0,0.1)",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              color: "white",
-            }}
-          >
-            <Users size={32} strokeWidth={2.1} />
-          </div>
+          <Image
+            src="/brand/logo/Whistle-Brand-Assets_lockup-vertical-light.svg"
+            alt="Whistle"
+            width={160}
+            height={160}
+            priority
+            style={{ width: 160, height: 160, display: "block" }}
+          />
 
           <p
             style={{
@@ -449,15 +586,181 @@ export default function AuthPage() {
     );
   }
 
+  const isNormalSignUp = normalAuthMode === "signup";
+  const normalSubtitle = isNormalSignUp
+    ? "Join and start exploring great meals"
+    : "How family and friends start great meals";
+
   return (
-    <main style={{ padding: 24, maxWidth: 720, margin: "0 auto" }}>
-      <h1>Sign in</h1>
-      <Auth
-        supabaseClient={supabase}
-        appearance={{ theme: ThemeSupa }}
-        providers={[]}
-        view="sign_in"
-      />
+    <main
+      style={{
+        minHeight: "100vh",
+        background: "#fcf5e8",
+        padding: "16px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        boxSizing: "border-box",
+      }}
+    >
+      <div
+        style={{
+          width: "min(361.5px, 100%)",
+          minHeight: isNormalSignUp ? 718 : 632,
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "flex-start",
+          color: "#213166",
+        }}
+      >
+        <div style={{ textAlign: "center" }}>
+          <Image
+            src="/brand/logo/Whistle-Brand-Assets_lockup-vertical-light.svg"
+            alt="Whistle"
+            width={256}
+            height={256}
+            priority
+            style={{
+              width: "min(256px, 100%)",
+              height: "auto",
+              display: "block",
+              margin: "0 auto",
+            }}
+          />
+
+          <p
+            style={{
+              margin: "16px 0 0",
+              fontSize: 18,
+              lineHeight: "28px",
+              fontWeight: 400,
+              color: "#213166",
+              textAlign: "center",
+            }}
+          >
+            {normalSubtitle}
+          </p>
+        </div>
+
+        <form
+          onSubmit={(event) =>
+            isNormalSignUp ? void handleNormalSignUp(event) : void handleNormalSignIn(event)
+          }
+          style={{
+            marginTop: 40,
+            display: "flex",
+            flexDirection: "column",
+            gap: 16,
+          }}
+        >
+          <div>
+            <label htmlFor="auth-email" style={{ ...fieldLabelStyle(), color: "#213166" }}>
+              Email address
+            </label>
+            <input
+              id="auth-email"
+              type="email"
+              autoComplete="email"
+              value={isNormalSignUp ? signupEmail : signinEmail}
+              onChange={(event) => {
+                setError(null);
+                if (isNormalSignUp) {
+                  setSignupEmail(event.target.value);
+                } else {
+                  setSigninEmail(event.target.value);
+                }
+              }}
+              placeholder="your.email@example.com"
+              style={{ ...normalInputStyle(), marginTop: 8 }}
+            />
+          </div>
+
+          {isNormalSignUp ? (
+            <div>
+              <label htmlFor="auth-display-name" style={{ ...fieldLabelStyle(), color: "#213166" }}>
+                Display name
+              </label>
+              <input
+                id="auth-display-name"
+                autoComplete="nickname"
+                value={signupDisplayName}
+                onChange={(event) => {
+                  setError(null);
+                  setSignupDisplayName(event.target.value);
+                }}
+                placeholder="Pick a name your friends know"
+                style={{ ...normalInputStyle(), marginTop: 8 }}
+              />
+            </div>
+          ) : null}
+
+          <div>
+            <label htmlFor="auth-password" style={{ ...fieldLabelStyle(), color: "#213166" }}>
+              Password
+            </label>
+            <input
+              id="auth-password"
+              type="password"
+              autoComplete={isNormalSignUp ? "new-password" : "current-password"}
+              value={isNormalSignUp ? signupPassword : signinPassword}
+              onChange={(event) => {
+                setError(null);
+                if (isNormalSignUp) {
+                  setSignupPassword(event.target.value);
+                } else {
+                  setSigninPassword(event.target.value);
+                }
+              }}
+              placeholder={isNormalSignUp ? "At least 8 characters" : "Enter your password"}
+              style={{ ...normalInputStyle(), marginTop: 8 }}
+            />
+          </div>
+
+          {error ? (
+            <div
+              style={{
+                borderRadius: 10,
+                background: "#fef2f2",
+                color: "#b91c1c",
+                padding: "10px 12px",
+                fontSize: 13,
+                lineHeight: "18px",
+              }}
+            >
+              {error}
+            </div>
+          ) : null}
+
+          <button
+            type="submit"
+            disabled={authenticating}
+            style={{ ...normalPrimaryButtonStyle(authenticating), marginTop: 14 }}
+          >
+            {authenticating
+              ? isNormalSignUp
+                ? "Creating Account..."
+                : "Signing In..."
+              : isNormalSignUp
+                ? "Create Account"
+                : "Sign In"}
+          </button>
+        </form>
+
+        <div style={{ marginTop: 28, textAlign: "center" }}>
+          <Link
+            href={normalAuthHref(isNormalSignUp ? "signin" : "signup", nextUrl)}
+            style={{
+              color: "#062a61",
+              fontSize: 14,
+              lineHeight: "20px",
+              fontWeight: 500,
+              textDecoration: "none",
+            }}
+          >
+            {isNormalSignUp ? "Already have an account? Sign In" : "Create Account"}
+          </Link>
+        </div>
+      </div>
     </main>
   );
 }

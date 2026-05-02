@@ -556,7 +556,7 @@ export default function DinersPage() {
   return (
     <main
       style={{
-        background: "#f9fafb",
+        background: "#fafafa",
         minHeight: "calc(100vh - 65px)",
         padding: 12,
       }}

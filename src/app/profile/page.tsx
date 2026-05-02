@@ -68,10 +68,14 @@ export default function ProfilePage() {
 
   return (
     <main style={{ padding: 24, maxWidth: 720, margin: "0 auto" }}>
-      <h1 style={{ fontSize: 28, marginBottom: 12 }}>Profile</h1>
+      <h1 style={{ fontSize: 28, marginBottom: 12 }}>Account</h1>
       <div style={{ fontSize: 13, opacity: 0.8, marginBottom: 12 }}>
-        Signed in as: {email}
+        Signed in with email: {email}
       </div>
+      <p style={{ fontSize: 13, lineHeight: "20px", color: "#6a7282", margin: "0 0 16px" }}>
+        This fallback account page only manages your display name. The full account experience is
+        available from Diners.
+      </p>
 
       <label style={{ fontSize: 13, fontWeight: 600 }}>Display name</label>
       <input

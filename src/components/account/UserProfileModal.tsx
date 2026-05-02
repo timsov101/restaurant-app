@@ -51,8 +51,8 @@ export default function UserProfileModal({
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
+  const [email, setEmail] = useState("");
   const [displayName, setDisplayName] = useState("");
-  const [mobileNumber, setMobileNumber] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [feedback, setFeedback] = useState<string | null>(null);
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
@@ -91,11 +91,7 @@ export default function UserProfileModal({
       }
 
       setUserId(uid);
-      setMobileNumber(
-        user?.phone?.trim() ||
-          (typeof user?.user_metadata?.phone === "string" ? user.user_metadata.phone.trim() : "") ||
-          ""
-      );
+      setEmail(user?.email?.trim() ?? "");
 
       const { data: profile, error: profileError } = await supabase
         .from("profiles")
@@ -232,7 +228,7 @@ export default function UserProfileModal({
 
           <div style={{ padding: "12px 24px 0" }}>
             <label htmlFor="profile-preferred-name" style={sectionLabelStyle()}>
-              Preferred name
+              Display name
             </label>
             <input
               id="profile-preferred-name"
@@ -248,14 +244,14 @@ export default function UserProfileModal({
           </div>
 
           <div style={{ padding: "16px 24px 0" }}>
-            <label htmlFor="profile-mobile-number" style={sectionLabelStyle()}>
-              Mobile number
+            <label htmlFor="profile-email-address" style={sectionLabelStyle()}>
+              Email address
             </label>
             <input
-              id="profile-mobile-number"
-              value={mobileNumber}
+              id="profile-email-address"
+              value={email}
               readOnly
-              placeholder="No mobile number on file"
+              placeholder="No email address on file"
               style={{ ...inputStyle(true), marginTop: 8 }}
             />
           </div>

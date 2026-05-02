@@ -6,9 +6,9 @@ import {
   Plus,
   Share,
   Smartphone,
-  Users,
   X,
 } from "lucide-react";
+import Image from "next/image";
 import { type CSSProperties, useEffect, useMemo, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 
@@ -25,7 +25,6 @@ type InvitePhase =
   | "redirecting";
 
 type GroupMember = {
-  user_id: string;
   display_name: string | null;
   role: "owner" | "member";
 };
@@ -34,7 +33,16 @@ type InviteGroup = {
   id: string;
   name: string;
   ownerName: string;
+  memberCount: number;
   members: GroupMember[];
+};
+
+type InviteSummaryRow = {
+  group_id: string;
+  group_name: string;
+  member_count: number;
+  owner_display_name: string | null;
+  preview_members: unknown;
 };
 
 type InstallPlatform = "ios" | "android";
@@ -138,6 +146,33 @@ function topBadge({
   );
 }
 
+function appLogoTop({ accent }: { accent?: React.ReactNode } = {}) {
+  return (
+    <div
+      style={{
+        position: "relative",
+        width: 160,
+        height: 160,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <Image
+        src="/brand/logo/Whistle-Brand-Assets_lockup-vertical-light.svg"
+        alt="Whistle"
+        width={160}
+        height={160}
+        priority
+        style={{ width: 160, height: 160, display: "block" }}
+      />
+      {accent ? (
+        <div style={{ position: "absolute", right: -2, bottom: -2 }}>{accent}</div>
+      ) : null}
+    </div>
+  );
+}
+
 function initialsFromName(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0) return "?";
@@ -148,6 +183,23 @@ function initialsFromName(name: string) {
 function memberLabel(member: GroupMember) {
   if (member.role === "owner") return member.display_name?.trim() || "Owner";
   return member.display_name?.trim() || "Member";
+}
+
+function parsePreviewMembers(value: unknown): GroupMember[] {
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((member) => {
+      if (!member || typeof member !== "object") return null;
+
+      const record = member as Record<string, unknown>;
+      const role = record.role === "owner" ? "owner" : "member";
+      const displayName =
+        typeof record.display_name === "string" ? record.display_name : null;
+
+      return { role, display_name: displayName } satisfies GroupMember;
+    })
+    .filter((member): member is GroupMember => Boolean(member));
 }
 
 function detectInstallPlatform(): InstallPlatform {
@@ -182,10 +234,7 @@ function LoadingCard({ title, body }: { title: string; body: string }) {
   return (
     <div style={pageShellStyle()}>
       <div style={outerStackStyle()}>
-        {topBadge({
-          icon: <Users size={44} strokeWidth={2.1} />,
-          background: "#d8b4fe",
-        })}
+        {appLogoTop()}
         <div style={cardStyle(240)}>
           <div
             style={{
@@ -228,6 +277,9 @@ export default function InviteJoinPage() {
   const [error, setError] = useState<string | null>(null);
 
   const installPlatform = useMemo(() => detectInstallPlatform(), []);
+  const hiddenMemberCount = inviteGroup
+    ? Math.max(inviteGroup.memberCount - inviteGroup.members.length, 0)
+    : 0;
 
   useEffect(() => {
     let active = true;
@@ -244,7 +296,7 @@ export default function InviteJoinPage() {
 
       const [{ data: sessionData, error: sessionError }, inviteResult] = await Promise.all([
         supabase.auth.getSession(),
-        supabase.rpc("group_by_invite", { p_token: token }).single(),
+        supabase.rpc("group_invite_summary", { p_token: token }).maybeSingle(),
       ]);
 
       if (!active) return;
@@ -258,20 +310,69 @@ export default function InviteJoinPage() {
       const uid = sessionData.session?.user?.id ?? null;
       setUserId(uid);
 
-      if (inviteResult.error || !inviteResult.data) {
+      if (inviteResult.error) {
+        console.warn("Invite summary failed; falling back to invite validation", {
+          code: inviteResult.error.code,
+          message: inviteResult.error.message,
+          details: inviteResult.error.details,
+          hint: inviteResult.error.hint,
+        });
+
+        const { data: fallbackGroup, error: fallbackError } = await supabase
+          .rpc("group_by_invite", { p_token: token })
+          .maybeSingle();
+
+        if (!active) return;
+
+        if (fallbackError || !fallbackGroup) {
+          if (fallbackError) {
+            console.warn("Invite fallback validation failed", {
+              code: fallbackError.code,
+              message: fallbackError.message,
+              details: fallbackError.details,
+              hint: fallbackError.hint,
+            });
+          }
+
+          setInviteGroup(null);
+          setPhase("invalid");
+          return;
+        }
+
+        const group = fallbackGroup as { id?: string; group_id?: string; name?: string; group_name?: string };
+        const fallbackInviteGroup: InviteGroup = {
+          id: group.id ?? group.group_id ?? "",
+          name: group.name ?? group.group_name ?? "Dining group",
+          ownerName: "Someone",
+          memberCount: 0,
+          members: [],
+        };
+
+        if (!fallbackInviteGroup.id) {
+          setInviteGroup(null);
+          setPhase("invalid");
+          return;
+        }
+
+        setInviteGroup(fallbackInviteGroup);
+
+        if (uid && autoJoin) {
+          await completeJoin(fallbackInviteGroup, uid);
+          return;
+        }
+
+        setPhase("landing");
+        return;
+      }
+
+      if (!inviteResult.data) {
         setInviteGroup(null);
         setPhase("invalid");
         return;
       }
 
-      const group = inviteResult.data as { id: string; name: string };
-      const { data: membersData } = await supabase.rpc("members_for_group", {
-        p_group_id: group.id,
-      });
-
-      if (!active) return;
-
-      const members = ((membersData ?? []) as GroupMember[]).sort((a, b) => {
+      const summary = inviteResult.data as InviteSummaryRow;
+      const members = parsePreviewMembers(summary.preview_members).sort((a, b) => {
         if (a.role !== b.role) return a.role === "owner" ? -1 : 1;
         return (a.display_name ?? "").localeCompare(b.display_name ?? "", undefined, {
           sensitivity: "base",
@@ -279,23 +380,22 @@ export default function InviteJoinPage() {
         });
       });
       const ownerName =
-        members.find((member) => member.role === "owner")?.display_name?.trim() || "Someone";
+        summary.owner_display_name?.trim() ||
+        members.find((member) => member.role === "owner")?.display_name?.trim() ||
+        "Someone";
 
       const nextInviteGroup: InviteGroup = {
-        id: group.id,
-        name: group.name,
+        id: summary.group_id,
+        name: summary.group_name,
         ownerName,
+        memberCount: summary.member_count,
         members,
       };
 
       setInviteGroup(nextInviteGroup);
 
-      const alreadyMember = uid
-        ? members.some((member) => member.user_id === uid)
-        : false;
-
-      if (uid && (autoJoin || alreadyMember)) {
-        await completeJoin(nextInviteGroup, uid, alreadyMember);
+      if (uid && autoJoin) {
+        await completeJoin(nextInviteGroup, uid);
         return;
       }
 
@@ -347,15 +447,8 @@ export default function InviteJoinPage() {
       return;
     }
 
-    const alreadyMember = inviteGroup.members.some((member) => member.user_id === userId);
-
     setPhase("joining");
     setError(null);
-
-    if (alreadyMember) {
-      setPhase("joined");
-      return;
-    }
 
     const { error: joinError } = await supabase
       .from("group_members")
@@ -448,10 +541,7 @@ export default function InviteJoinPage() {
     return (
       <div style={pageShellStyle()}>
         <div style={outerStackStyle()}>
-          {topBadge({
-            icon: <Users size={44} strokeWidth={2.1} />,
-            background: "#d8b4fe",
-          })}
+          {appLogoTop()}
           <div style={cardStyle(440)}>
             <div
               style={{
@@ -486,7 +576,7 @@ export default function InviteJoinPage() {
                   fontWeight: 500,
                 }}
               >
-                {inviteGroup.members.length} members
+                {inviteGroup.memberCount} member{inviteGroup.memberCount === 1 ? "" : "s"}
               </div>
 
               <div
@@ -498,9 +588,9 @@ export default function InviteJoinPage() {
                   alignItems: "center",
                 }}
               >
-                {inviteGroup.members.map((member) => (
+                {inviteGroup.members.map((member, index) => (
                   <div
-                    key={member.user_id}
+                    key={`${member.role}-${member.display_name ?? "member"}-${index}`}
                     style={{
                       width: "fit-content",
                       minWidth: 142,
@@ -538,6 +628,18 @@ export default function InviteJoinPage() {
                     </div>
                   </div>
                 ))}
+                {hiddenMemberCount > 0 ? (
+                  <div
+                    style={{
+                      fontSize: 14,
+                      lineHeight: "20px",
+                      color: "#6a7282",
+                      fontWeight: 500,
+                    }}
+                  >
+                    +{hiddenMemberCount} more
+                  </div>
+                ) : null}
               </div>
             </div>
 
@@ -614,9 +716,7 @@ export default function InviteJoinPage() {
     return (
       <div style={pageShellStyle()}>
         <div style={outerStackStyle()}>
-          {topBadge({
-            icon: <Users size={44} strokeWidth={2.1} />,
-            background: "#d8b4fe",
+          {appLogoTop({
             accent: (
               <div
                 style={{

@@ -3,6 +3,10 @@
 export type ActiveGroup = {
   id: string;
   name: string;
+  location_label?: string | null;
+  location_lat?: number | null;
+  location_lng?: number | null;
+  location_place_id?: string | null;
 };
 
 const ACTIVE_GROUP_STORAGE_KEY = "activeGroupId";

@@ -389,6 +389,7 @@ export async function fetchPlaceDetailsFromGoogle(
     priceRange?.endPrice && typeof priceRange.endPrice === "object"
       ? (priceRange.endPrice as Record<string, unknown>)
       : null;
+  const { lat, lng } = parseGoogleLocation(data.location);
 
   return {
     google_place_id: String(data.id ?? placeId),
@@ -412,6 +413,8 @@ export async function fetchPlaceDetailsFromGoogle(
           : null,
     price_range_start: parsePricePart(startPrice?.units, startPrice?.nanos),
     price_range_end: parsePricePart(endPrice?.units, endPrice?.nanos),
+    lat,
+    lng,
   };
 }
 

@@ -11,7 +11,9 @@ export type ActiveGroupOption = ActiveGroup & {
 export async function loadUserActiveGroups(userId: string) {
   const { data: memberships, error: membershipsError } = await supabase
     .from("group_members")
-    .select("group_id, groups ( id, name )")
+    .select(
+      "group_id, groups ( id, name, location_label, location_lat, location_lng, location_place_id )"
+    )
     .eq("user_id", userId);
 
   if (membershipsError) {

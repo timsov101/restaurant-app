@@ -5,6 +5,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { pickActiveGroupId, setStoredActiveGroupId } from "@/lib/activeGroup";
 import type { ActiveGroupOption } from "@/lib/activeGroupData";
 import { loadUserActiveGroups } from "@/lib/activeGroupData";
+import { hasDistanceUpperBound } from "@/lib/distanceFilter";
 import EatFiltersModal, { EatFilters } from "./EatFiltersModal";
 import ActiveGroupModal from "@/components/ActiveGroupModal";
 import ActiveGroupTrigger from "@/components/ActiveGroupTrigger";
@@ -48,6 +49,7 @@ type SavedRestaurant = {
   address: string | null;
   primary_type: string | null;
   price_level: number | null;
+  distance_miles: number | null;
 };
 
 type RestaurantMetaRow = {
@@ -62,6 +64,7 @@ type SavedRestaurantForGroupRow = {
   address: string | null;
   primary_type: string | null;
   price_level: number | null;
+  distance_miles?: number | null;
 };
 
 type ParticipantRow = {
@@ -166,6 +169,10 @@ function normalizeSavedRestaurantForGroupRow(
     address: normalizeString(row.address),
     primary_type: normalizeString(row.primary_type),
     price_level: normalizeNumber(row.price_level),
+    distance_miles:
+      normalizeNumber(row.distance_miles) ??
+      normalizeNumber(row.distanceMiles) ??
+      normalizeNumber(row.distance_mi),
   };
 }
 
@@ -180,7 +187,8 @@ const defaultFilters: EatFilters = {
 function matchesRecFilters(
   row: RecRow,
   filters: EatFilters,
-  recMeta: Record<string, { primary_type: string | null; price_level: number | null }>
+  recMeta: Record<string, { primary_type: string | null; price_level: number | null }>,
+  distanceByRestaurantId: Record<string, number | null>
 ) {
   const meta = recMeta[row.restaurant_id] ?? { primary_type: null, price_level: null };
 
@@ -194,6 +202,10 @@ function matchesRecFilters(
 
   if (filters.minOverall != null && Number(row.overall_avg) < filters.minOverall) return false;
   if (filters.minNutrition != null && Number(row.nutrition_avg) < filters.minNutrition) return false;
+  if (hasDistanceUpperBound(filters.maxDistanceMiles)) {
+    const distanceMiles = distanceByRestaurantId[row.restaurant_id] ?? null;
+    if (distanceMiles == null || distanceMiles > filters.maxDistanceMiles) return false;
+  }
 
   return true;
 }
@@ -1026,13 +1038,23 @@ export default function EatPage() {
   const [filters, setFilters] = useState<EatFilters>(defaultFilters);
   const [draftFilters, setDraftFilters] = useState<EatFilters>(defaultFilters);
 
+  const distanceByRestaurantId = useMemo(() => {
+    const next: Record<string, number | null> = {};
+    savedRestaurants.forEach((restaurant) => {
+      next[restaurant.id] = restaurant.distance_miles ?? null;
+    });
+    return next;
+  }, [savedRestaurants]);
+
   useEffect(() => {
     setVisibleCount(5);
   }, [filters]);
 
   const filteredRecs = useMemo(() => {
-    return recs.filter((row) => matchesRecFilters(row, filters, recMeta));
-  }, [recs, recMeta, filters]);
+    return recs.filter((row) =>
+      matchesRecFilters(row, filters, recMeta, distanceByRestaurantId)
+    );
+  }, [distanceByRestaurantId, filters, recMeta, recs]);
 
   const visible = useMemo(
     () => filteredRecs.slice(0, visibleCount),
@@ -1074,8 +1096,14 @@ export default function EatPage() {
   }, [filters]);
 
   const draftMatchCount = useMemo(() => {
-    return recs.filter((row) => matchesRecFilters(row, draftFilters, recMeta)).length;
-  }, [draftFilters, recMeta, recs]);
+    return recs.filter((row) =>
+      matchesRecFilters(row, draftFilters, recMeta, distanceByRestaurantId)
+    ).length;
+  }, [distanceByRestaurantId, draftFilters, recMeta, recs]);
+
+  const hasDistanceData = useMemo(() => {
+    return recs.some((row) => distanceByRestaurantId[row.restaurant_id] != null);
+  }, [distanceByRestaurantId, recs]);
 
   const chosenRecommendation = useMemo(() => {
     if (!pickedViaModal || !chosenRestaurantId) return null;
@@ -1382,6 +1410,7 @@ export default function EatPage() {
       setLoadingMembers(true);
       setMembers([]);
       setRecs([]);
+      setSavedRestaurants([]);
       setVisibleCount(5);
       setEventId(null);
       setChosenRestaurantId(null);
@@ -1396,6 +1425,17 @@ export default function EatPage() {
 
       const ms = (data ?? []) as Member[];
       setMembers(ms);
+
+      try {
+        const nextSavedRestaurants = await loadSavedRestaurantsForGroup(groupId);
+        setSavedRestaurants(nextSavedRestaurants);
+      } catch (loadSavedError) {
+        setError(
+          loadSavedError instanceof Error
+            ? loadSavedError.message
+            : String(loadSavedError)
+        );
+      }
 
       // default selection: all true
       const allSel: Record<string, boolean> = {};
@@ -1891,7 +1931,7 @@ export default function EatPage() {
         cuisineOptions={cuisineOptions}
         filters={draftFilters}
         matchCount={draftMatchCount}
-        hasDistanceData={false}
+        hasDistanceData={hasDistanceData}
         onChange={setDraftFilters}
         onReset={() => setDraftFilters(defaultFilters)}
         onApply={applyFilters}

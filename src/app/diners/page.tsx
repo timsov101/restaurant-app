@@ -233,6 +233,29 @@ export default function DinersPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  useEffect(() => {
+    if (!userId) return;
+
+    function revalidateGroups() {
+      void refreshGroups(userId);
+    }
+
+    function handleVisibilityChange() {
+      if (document.visibilityState === "visible") {
+        revalidateGroups();
+      }
+    }
+
+    window.addEventListener("focus", revalidateGroups);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+
+    return () => {
+      window.removeEventListener("focus", revalidateGroups);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId]);
+
   const filteredGroups = useMemo(() => {
     const term = searchQuery.trim().toLowerCase();
     if (!term) return groups;
@@ -468,11 +491,16 @@ export default function DinersPage() {
       return;
     }
 
+    if (activeEditGroup.owner_id !== userId) {
+      setError("Only the group owner can edit this group.");
+      return;
+    }
+
     setSaving(true);
     setError(null);
     setNotice(null);
 
-    const { error: updateError } = await supabase
+    const { error: updateError, count: updatedCount } = await supabase
       .from("groups")
       .update({
         name,
@@ -480,7 +508,7 @@ export default function DinersPage() {
         location_lat: values.diningArea?.lat ?? null,
         location_lng: values.diningArea?.lng ?? null,
         location_place_id: values.diningArea?.placeId ?? null,
-      })
+      }, { count: "exact" })
       .eq("id", activeEditGroup.id);
 
     if (updateError) {
@@ -489,13 +517,13 @@ export default function DinersPage() {
       return;
     }
 
-    if (values.removedMemberUserIds.length > 0) {
-      if (activeEditGroup.owner_id !== userId) {
-        setSaving(false);
-        setError("Only the group owner can remove diners.");
-        return;
-      }
+    if (updatedCount !== 1) {
+      setSaving(false);
+      setError("Group changes could not be saved. Please try again.");
+      return;
+    }
 
+    if (values.removedMemberUserIds.length > 0) {
       if (values.removedMemberUserIds.includes(activeEditGroup.owner_id)) {
         setSaving(false);
         setError("The group owner cannot be removed.");
@@ -515,26 +543,7 @@ export default function DinersPage() {
       }
     }
 
-    setGroups((current) =>
-      current.map((group) =>
-        group.id === activeEditGroup.id
-          ? {
-            ...group,
-            name,
-            location_label: values.diningArea?.label ?? null,
-            location_lat: values.diningArea?.lat ?? null,
-            location_lng: values.diningArea?.lng ?? null,
-            location_place_id: values.diningArea?.placeId ?? null,
-          }
-          : group
-      )
-    );
-    setMembersByGroup((current) => ({
-      ...current,
-      [activeEditGroup.id]: (current[activeEditGroup.id] ?? []).filter(
-        (member) => !values.removedMemberUserIds.includes(member.user_id)
-      ),
-    }));
+    await refreshGroups(userId);
 
     setSaving(false);
     setModalState(null);

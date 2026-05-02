@@ -11,6 +11,13 @@ import {
   X,
 } from "lucide-react";
 
+import {
+  DISTANCE_FILTER_STOPS,
+  formatDistanceFilterLabel,
+  getDistanceFilterIndex,
+  getDistanceFilterValue,
+} from "@/lib/distanceFilter";
+
 export type RestaurantMode = "saved" | "add";
 
 export type RestaurantSortBy =
@@ -100,7 +107,8 @@ export default function RestaurantsFiltersModal({
   if (!open) return null;
 
   const noMatches = matchCount === 0;
-  const maxDistance = filters.maxDistanceMiles ?? 10;
+  const distanceIndex = getDistanceFilterIndex(filters.maxDistanceMiles);
+  const maxDistanceLabel = formatDistanceFilterLabel(filters.maxDistanceMiles);
   const addMode = mode === "add";
 
   const setCuisineAll = () => {
@@ -364,21 +372,23 @@ export default function RestaurantsFiltersModal({
               {sectionTitle(
                 <MapPin size={16} color="#a855f7" />,
                 hasDistanceData
-                  ? `Max Distance: ${maxDistance} mi`
+                  ? `Max Distance: ${maxDistanceLabel}`
                   : "Max Distance: unavailable"
               )}
               <div style={{ marginTop: 12 }}>
                 <input
                   type="range"
-                  min={1}
-                  max={10}
+                  min={0}
+                  max={DISTANCE_FILTER_STOPS.length - 1}
                   step={1}
-                  value={maxDistance}
+                  value={distanceIndex}
                   disabled={!hasDistanceData}
                   onChange={(event) =>
                     onChange({
                       ...filters,
-                      maxDistanceMiles: Number(event.target.value),
+                      maxDistanceMiles: getDistanceFilterValue(
+                        Number(event.target.value)
+                      ),
                     })
                   }
                   style={{
@@ -397,8 +407,12 @@ export default function RestaurantsFiltersModal({
                     lineHeight: "16px",
                   }}
                 >
-                  <span>1 mi</span>
-                  <span>10 mi</span>
+                  <span>{formatDistanceFilterLabel(DISTANCE_FILTER_STOPS[0])}</span>
+                  <span>
+                    {formatDistanceFilterLabel(
+                      DISTANCE_FILTER_STOPS[DISTANCE_FILTER_STOPS.length - 1]
+                    )}
+                  </span>
                 </div>
                 {!hasDistanceData ? (
                   <div

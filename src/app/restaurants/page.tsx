@@ -14,6 +14,7 @@ import {
 import { pickActiveGroupId, setStoredActiveGroupId } from "@/lib/activeGroup";
 import type { ActiveGroupOption } from "@/lib/activeGroupData";
 import { loadUserActiveGroups } from "@/lib/activeGroupData";
+import { hasDistanceUpperBound } from "@/lib/distanceFilter";
 import { supabase } from "@/lib/supabaseClient";
 import ActiveGroupModal from "@/components/ActiveGroupModal";
 import ActiveGroupTrigger from "@/components/ActiveGroupTrigger";
@@ -26,11 +27,7 @@ import RestaurantsFiltersModal, {
 } from "./RestaurantsFiltersModal";
 import RestaurantsRatingModal from "./RestaurantsRatingModal";
 
-type Group = {
-  id: ActiveGroupOption["id"];
-  name: ActiveGroupOption["name"];
-  memberCount: ActiveGroupOption["memberCount"];
-};
+type Group = ActiveGroupOption;
 
 type SavedRestaurantRow = {
   group_id: string;
@@ -208,7 +205,7 @@ function matchesFilters(
     }
   }
 
-  if (hasDistanceData && filters.maxDistanceMiles != null) {
+  if (hasDistanceData && hasDistanceUpperBound(filters.maxDistanceMiles)) {
     if (
       row.distance_miles == null ||
       Number(row.distance_miles) > filters.maxDistanceMiles
@@ -1014,7 +1011,7 @@ export default function RestaurantsPage() {
       params.set("maxPriceLevel", String(nextFilters.maxPriceLevel));
     }
 
-    if (nextFilters.maxDistanceMiles != null) {
+    if (hasDistanceUpperBound(nextFilters.maxDistanceMiles)) {
       params.set("maxDistanceMiles", String(nextFilters.maxDistanceMiles));
     }
 
@@ -1022,8 +1019,13 @@ export default function RestaurantsPage() {
       params.set("sortBy", nextFilters.sortBy);
     }
 
+    if (activeGroup?.location_lat != null && activeGroup.location_lng != null) {
+      params.set("anchorLat", String(activeGroup.location_lat));
+      params.set("anchorLng", String(activeGroup.location_lng));
+    }
+
     return params;
-  }, [groupId, query]);
+  }, [activeGroup, groupId, query]);
 
   const buildAddSearchKey = useCallback(
     (nextFilters: RestaurantFilters) => buildAddSearchParams(nextFilters).toString(),

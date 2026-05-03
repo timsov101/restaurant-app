@@ -589,7 +589,9 @@ function AuthPageContent() {
   const isNormalSignUp = normalAuthMode === "signup";
   const normalSubtitle = isNormalSignUp
     ? "Join and start exploring great meals"
+
     : "It's time to eat";
+
 
   return (
     <main

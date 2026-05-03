@@ -3,6 +3,7 @@
 export type ActiveGroup = {
   id: string;
   name: string;
+  archived_at?: string | null;
   location_label?: string | null;
   location_lat?: number | null;
   location_lng?: number | null;

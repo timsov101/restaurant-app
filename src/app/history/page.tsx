@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import { pickActiveGroupId, setStoredActiveGroupId } from "@/lib/activeGroup";
 import type { ActiveGroupOption } from "@/lib/activeGroupData";
 import { loadUserActiveGroups } from "@/lib/activeGroupData";
-import { Search } from "lucide-react";
+import { Search, X } from "lucide-react";
 import ActiveGroupModal from "@/components/ActiveGroupModal";
 import ActiveGroupTrigger from "@/components/ActiveGroupTrigger";
 import StatePanel from "@/components/StatePanel";
@@ -17,6 +17,10 @@ import HistoryFiltersModal, { HistoryFilters } from "./HistoryFiltersModal";
 const defaultFilters: HistoryFilters = {
   cuisines: [],
 };
+
+type DeleteConfirmation = {
+  eventId: string;
+} | null;
 
 function matchesSearch(row: HistoryRow, query: string) {
   const s = query.trim().toLowerCase();
@@ -50,10 +54,12 @@ export default function HistoryPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [deleteConfirmation, setDeleteConfirmation] = useState<DeleteConfirmation>(null);
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [filters, setFilters] = useState<HistoryFilters>(defaultFilters);
   const [draftFilters, setDraftFilters] = useState<HistoryFilters>(defaultFilters);
   const [hasGroups, setHasGroups] = useState(true);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
   const filtersActive = filters.cuisines.length > 0;
   const activeGroup = useMemo(
     () => groups.find((group) => group.id === groupId) ?? null,
@@ -149,10 +155,17 @@ export default function HistoryPage() {
     return rows.filter((row) => matchesSearch(row, q) && matchesFilters(row, draftFilters)).length;
   }, [draftFilters, q, rows]);
 
-  async function onDelete(eventId: string) {
-    const ok = window.confirm("Delete this dining event? This cannot be undone.");
-    if (!ok) return;
+  function requestDelete(row: HistoryRow) {
+    setDeleteConfirmation({
+      eventId: row.event_id,
+    });
+  }
 
+  async function confirmDelete() {
+    if (!deleteConfirmation) return;
+
+    const eventId = deleteConfirmation.eventId;
+    setDeleteConfirmation(null);
     setDeleting(eventId);
     setErr(null);
 
@@ -165,6 +178,10 @@ export default function HistoryPage() {
     }
 
     await loadHistory(groupId);
+  }
+
+  function cancelDelete() {
+    setDeleteConfirmation(null);
   }
 
   function openFilters() {
@@ -212,6 +229,7 @@ export default function HistoryPage() {
           }}
         />
         <input
+          ref={searchInputRef}
           value={q}
           onChange={(e) => setQ(e.target.value)}
           placeholder="Search group, restaurant, cuisine, diners..."
@@ -221,7 +239,7 @@ export default function HistoryPage() {
             borderRadius: 999,
             border: "2px solid #1d4ed8",
             background: "white",
-            padding: "8px 14px 8px 38px",
+            padding: q ? "8px 44px 8px 38px" : "8px 14px 8px 38px",
             boxShadow: "0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.1)",
             outline: "none",
             fontSize: 16,
@@ -230,6 +248,34 @@ export default function HistoryPage() {
             color: "#111827",
           }}
         />
+        {q ? (
+          <button
+            type="button"
+            aria-label="Clear search"
+            onClick={() => {
+              setQ("");
+              searchInputRef.current?.focus();
+            }}
+            style={{
+              position: "absolute",
+              right: 8,
+              top: "50%",
+              transform: "translateY(-50%)",
+              width: 28,
+              height: 28,
+              border: "none",
+              borderRadius: 999,
+              background: "transparent",
+              color: "#9ca3af",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: "pointer",
+            }}
+          >
+            <X size={16} />
+          </button>
+        ) : null}
       </div>
 
       {err && <div style={{ color: "crimson", marginBottom: 10 }}>{err}</div>}
@@ -250,7 +296,7 @@ export default function HistoryPage() {
                 row={r}
                 isDeleting={isDeleting}
                 disableDelete={deleting !== null}
-                onDelete={() => onDelete(r.event_id)}
+                onDelete={() => requestDelete(r)}
               />
             );
           })}
@@ -279,6 +325,102 @@ export default function HistoryPage() {
         onReset={() => setDraftFilters(defaultFilters)}
         onApply={applyFilters}
       />
+
+      {deleteConfirmation ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="history-delete-title"
+          aria-describedby="history-delete-description"
+          onClick={cancelDelete}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 180,
+            background: "rgba(17,24,39,0.55)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+        >
+          <div
+            onClick={(event) => event.stopPropagation()}
+            style={{
+              width: "min(360px, 100%)",
+              borderRadius: 12,
+              background: "#fafafa",
+              border: "1px solid rgba(0,0,0,0.08)",
+              boxShadow: "0 10px 15px rgba(0,0,0,0.1), 0 4px 6px rgba(0,0,0,0.08)",
+              padding: 24,
+            }}
+          >
+            <div
+              id="history-delete-title"
+              style={{
+                fontSize: 20,
+                lineHeight: "28px",
+                fontWeight: 600,
+                color: "#0a0a0a",
+                textAlign: "center",
+              }}
+            >
+              Delete dining event?
+            </div>
+            <p
+              id="history-delete-description"
+              style={{
+                margin: "12px 0 0",
+                fontSize: 14,
+                lineHeight: "20px",
+                color: "#4a5565",
+                textAlign: "center",
+              }}
+            >
+              This action cannot be undone.
+            </p>
+
+            <div style={{ display: "flex", gap: 8, marginTop: 24 }}>
+              <button
+                type="button"
+                onClick={cancelDelete}
+                style={{
+                  flex: 1,
+                  height: 40,
+                  borderRadius: 10,
+                  border: "1px solid rgba(0,0,0,0.08)",
+                  background: "#fafafa",
+                  color: "#0a0a0a",
+                  fontSize: 14,
+                  lineHeight: "20px",
+                  fontWeight: 500,
+                  cursor: "pointer",
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void confirmDelete()}
+                style={{
+                  flex: 1,
+                  height: 40,
+                  borderRadius: 10,
+                  border: "none",
+                  background: "#dc2626",
+                  color: "white",
+                  fontSize: 14,
+                  lineHeight: "20px",
+                  fontWeight: 500,
+                  cursor: "pointer",
+                }}
+              >
+                Delete Event
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </main>
   );
 }

@@ -32,6 +32,6 @@ export function formatDistanceFilterLabel(value: number | null) {
     : `${resolvedValue} mi`;
 }
 
-export function hasDistanceUpperBound(value: number | null) {
+export function hasDistanceUpperBound(value: number | null): value is number {
   return value != null && value < OPEN_ENDED_DISTANCE_STOP;
 }

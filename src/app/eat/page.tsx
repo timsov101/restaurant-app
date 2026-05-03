@@ -499,6 +499,8 @@ function PickMyOwnModal({
   onQueryChange: (value: string) => void;
   onChoose: (restaurantId: string) => void | Promise<void>;
 }) {
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+
   useEffect(() => {
     if (!open) return;
 
@@ -593,6 +595,7 @@ function PickMyOwnModal({
               }}
             />
             <input
+              ref={searchInputRef}
               value={query}
               onChange={(event) => onQueryChange(event.target.value)}
               placeholder="Search restaurants..."
@@ -602,13 +605,41 @@ function PickMyOwnModal({
                 borderRadius: 10,
                 border: "1px solid transparent",
                 background: "#f3f4f6",
-                padding: "0 12px 0 40px",
+                padding: query ? "0 44px 0 40px" : "0 12px 0 40px",
                 fontSize: 16,
                 letterSpacing: "-0.31px",
                 color: "#111827",
                 outline: "none",
               }}
             />
+            {query ? (
+              <button
+                type="button"
+                aria-label="Clear search"
+                onClick={() => {
+                  onQueryChange("");
+                  searchInputRef.current?.focus();
+                }}
+                style={{
+                  position: "absolute",
+                  right: 8,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  width: 28,
+                  height: 28,
+                  border: "none",
+                  borderRadius: 999,
+                  background: "transparent",
+                  color: "#9ca3af",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                }}
+              >
+                <X size={16} />
+              </button>
+            ) : null}
           </div>
         </div>
 

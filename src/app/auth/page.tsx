@@ -3,7 +3,7 @@
 import { ArrowLeft } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { type CSSProperties, useEffect, useState } from "react";
+import { Suspense, type CSSProperties, useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 
 import { supabase } from "@/lib/supabaseClient";
@@ -118,7 +118,7 @@ function normalizeEmail(value: string) {
   return value.trim().toLowerCase();
 }
 
-export default function AuthPage() {
+function AuthPageContent() {
   const [isSignedIn, setIsSignedIn] = useState(false);
   const [email, setEmail] = useState<string | null>(null);
   const [authenticating, setAuthenticating] = useState(false);
@@ -589,7 +589,9 @@ export default function AuthPage() {
   const isNormalSignUp = normalAuthMode === "signup";
   const normalSubtitle = isNormalSignUp
     ? "Join and start exploring great meals"
-    : "How family and friends start great meals";
+
+    : "It's time to eat";
+
 
   return (
     <main
@@ -762,5 +764,13 @@ export default function AuthPage() {
         </div>
       </div>
     </main>
+  );
+}
+
+export default function AuthPage() {
+  return (
+    <Suspense fallback={null}>
+      <AuthPageContent />
+    </Suspense>
   );
 }

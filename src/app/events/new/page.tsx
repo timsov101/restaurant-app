@@ -4,8 +4,15 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 import AvatarName from "@/components/AvatarName";
 
-type Group = { id: string; name: string };
+type Group = { id: string; name: string; archived_at: string | null };
+type GroupRelationValue = Group | readonly Group[] | null | undefined;
 type Member = { user_id: string; role: string; display_name: string | null };
+
+function normalizeGroupRelation(groups: GroupRelationValue): Group[] {
+  const normalizedGroups = Array.isArray(groups) ? groups : groups ? [groups] : [];
+
+  return normalizedGroups.filter((group): group is Group => group.archived_at == null);
+}
 
 export default function NewEventPage() {
   const [uid, setUid] = useState<string | null>(null);
@@ -28,12 +35,12 @@ export default function NewEventPage() {
 
       const { data: gm, error: e } = await supabase
         .from("group_members")
-        .select("groups ( id, name )")
+        .select("groups ( id, name, archived_at )")
         .eq("user_id", u);
 
       if (e) return setError(e.message);
 
-      const gs: Group[] = (gm ?? []).map((x: any) => x.groups).filter(Boolean);
+      const gs = (gm ?? []).flatMap((row) => normalizeGroupRelation(row.groups));
       setGroups(gs);
     })();
   }, []);

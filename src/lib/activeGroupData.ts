@@ -8,11 +8,19 @@ export type ActiveGroupOption = ActiveGroup & {
   memberCount: number;
 };
 
+type ActiveGroupRelationValue = ActiveGroup | readonly ActiveGroup[] | null | undefined;
+
+function normalizeActiveGroupRelation(groups: ActiveGroupRelationValue): ActiveGroup[] {
+  const normalizedGroups = Array.isArray(groups) ? groups : groups ? [groups] : [];
+
+  return normalizedGroups.filter((group): group is ActiveGroup => group.archived_at == null);
+}
+
 export async function loadUserActiveGroups(userId: string) {
   const { data: memberships, error: membershipsError } = await supabase
     .from("group_members")
     .select(
-      "group_id, groups ( id, name, location_label, location_lat, location_lng, location_place_id )"
+      "group_id, groups ( id, name, archived_at, location_label, location_lat, location_lng, location_place_id )"
     )
     .eq("user_id", userId);
 
@@ -20,12 +28,9 @@ export async function loadUserActiveGroups(userId: string) {
     return { groups: [] as ActiveGroupOption[], error: membershipsError.message };
   }
 
-  const groups = ((memberships ?? []) as Array<{
-    group_id: string;
-    groups: ActiveGroup | null;
-  }>)
-    .map((row) => row.groups)
-    .filter(Boolean) as ActiveGroup[];
+  const groups = (memberships ?? []).flatMap((row) =>
+    normalizeActiveGroupRelation(row.groups)
+  );
 
   const groupIds = groups.map((group) => group.id);
   if (groupIds.length === 0) {

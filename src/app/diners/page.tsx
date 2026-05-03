@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleUserRound, Plus, Search } from "lucide-react";
+import { Plus, Search, UserRound, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import UserProfileModal from "@/components/account/UserProfileModal";
@@ -19,11 +19,15 @@ type Group = {
   owner_id: string;
   invite_token: string | null;
   created_at: string;
+  archived_at: string | null;
+  archived_by: string | null;
   location_label: string | null;
   location_lat: number | null;
   location_lng: number | null;
   location_place_id: string | null;
 };
+
+type GroupRelationValue = Group | readonly Group[] | null | undefined;
 
 type Member = EditableGroupMember;
 
@@ -52,6 +56,12 @@ function sortMembers(members: Member[]) {
       numeric: true,
     });
   });
+}
+
+function normalizeGroupRelation(groups: GroupRelationValue): Group[] {
+  const normalizedGroups = Array.isArray(groups) ? groups : groups ? [groups] : [];
+
+  return normalizedGroups.filter((group): group is Group => group.archived_at == null);
 }
 
 function RevokeInviteToast({
@@ -145,6 +155,7 @@ export default function DinersPage() {
   const [profileModalOpen, setProfileModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const revokeToastTimerRef = useRef<number | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     return () => {
@@ -158,7 +169,7 @@ export default function DinersPage() {
     const { data, error: groupsError } = await supabase
       .from("group_members")
       .select(
-        "groups ( id, name, owner_id, invite_token, created_at, location_label, location_lat, location_lng, location_place_id )"
+        "groups ( id, name, owner_id, invite_token, created_at, archived_at, archived_by, location_label, location_lat, location_lng, location_place_id )"
       )
       .eq("user_id", uid);
 
@@ -168,9 +179,7 @@ export default function DinersPage() {
       return [];
     }
 
-    const nextGroups = (data ?? [])
-      .map((row: { groups: Group | null }) => row.groups)
-      .filter(Boolean) as Group[];
+    const nextGroups = (data ?? []).flatMap((row) => normalizeGroupRelation(row.groups));
 
     nextGroups.sort((a, b) => (a.created_at < b.created_at ? 1 : -1));
     setGroups(nextGroups);
@@ -236,8 +245,10 @@ export default function DinersPage() {
   useEffect(() => {
     if (!userId) return;
 
+    const activeUserId = userId;
+
     function revalidateGroups() {
-      void refreshGroups(userId);
+      void refreshGroups(activeUserId);
     }
 
     function handleVisibilityChange() {
@@ -283,14 +294,25 @@ export default function DinersPage() {
     const previousInviteToken = group?.invite_token;
 
     if (!group || !previousInviteToken) return;
+    if (!userId || group.owner_id !== userId) {
+      setError("Only the group owner can revoke invites.");
+      return;
+    }
 
-    const { error: revokeError } = await supabase
+    const { error: revokeError, count: revokedCount } = await supabase
       .from("groups")
-      .update({ invite_token: null })
-      .eq("id", groupId);
+      .update({ invite_token: null }, { count: "exact" })
+      .eq("id", groupId)
+      .eq("owner_id", userId)
+      .is("archived_at", null);
 
     if (revokeError) {
       setError(revokeError.message);
+      return;
+    }
+
+    if (revokedCount !== 1) {
+      setError("Invite could not be revoked. Please try again.");
       return;
     }
 
@@ -335,13 +357,25 @@ export default function DinersPage() {
     setPendingInviteRevoke(null);
     setError(null);
 
-    const { error: restoreError } = await supabase
+    if (!userId) {
+      setError("Not signed in.");
+      return;
+    }
+
+    const { error: restoreError, count: restoredCount } = await supabase
       .from("groups")
-      .update({ invite_token: restoreEntry.inviteToken })
-      .eq("id", restoreEntry.groupId);
+      .update({ invite_token: restoreEntry.inviteToken }, { count: "exact" })
+      .eq("id", restoreEntry.groupId)
+      .eq("owner_id", userId)
+      .is("archived_at", null);
 
     if (restoreError) {
       setError(restoreError.message);
+      return;
+    }
+
+    if (restoredCount !== 1) {
+      setError("Invite could not be restored. Please try again.");
       return;
     }
 
@@ -365,21 +399,33 @@ export default function DinersPage() {
     setError(null);
     setNotice(null);
 
+    if (!userId) {
+      setError("Not signed in.");
+      return;
+    }
+
+    if (group.owner_id !== userId) {
+      setError("Only the group owner can invite diners.");
+      return;
+    }
+
     try {
       const inviteToken = await ensureGroupHasInviteToken({
         inviteToken: group.invite_token,
         persistInviteToken: async (nextToken) => {
-          const { error: updateError } = await supabase
+          const { error: updateError, count: updateCount } = await supabase
             .from("groups")
-            .update({ invite_token: nextToken })
-            .eq("id", group.id);
+            .update({ invite_token: nextToken }, { count: "exact" })
+            .eq("id", group.id)
+            .eq("owner_id", userId)
+            .is("archived_at", null);
 
           if (updateError) {
             throw new Error(updateError.message);
           }
 
-          if (!userId) {
-            throw new Error("Not signed in.");
+          if (updateCount !== 1) {
+            throw new Error("Invite token could not be saved.");
           }
 
           const { data: groupMemberRow, error: readBackError } = await supabase
@@ -428,6 +474,10 @@ export default function DinersPage() {
       setError("Please enter a group name.");
       return;
     }
+    if (!values.diningArea) {
+      setError("Please choose a default dining location.");
+      return;
+    }
     if (!userId) {
       setError("Not signed in.");
       return;
@@ -442,13 +492,14 @@ export default function DinersPage() {
       .insert({
         name,
         owner_id: userId,
-        location_label: values.diningArea?.label ?? null,
-        location_lat: values.diningArea?.lat ?? null,
-        location_lng: values.diningArea?.lng ?? null,
-        location_place_id: values.diningArea?.placeId ?? null,
+        invite_token: null,
+        location_label: values.diningArea.label,
+        location_lat: values.diningArea.lat,
+        location_lng: values.diningArea.lng,
+        location_place_id: values.diningArea.placeId,
       })
       .select(
-        "id, name, owner_id, invite_token, created_at, location_label, location_lat, location_lng, location_place_id"
+        "id, name, owner_id, invite_token, created_at, archived_at, archived_by, location_label, location_lat, location_lng, location_place_id"
       )
       .single();
 
@@ -485,6 +536,10 @@ export default function DinersPage() {
       setError("Please enter a group name.");
       return;
     }
+    if (!values.diningArea) {
+      setError("Please choose a default dining location.");
+      return;
+    }
 
     if (!userId) {
       setError("Not signed in.");
@@ -504,12 +559,14 @@ export default function DinersPage() {
       .from("groups")
       .update({
         name,
-        location_label: values.diningArea?.label ?? null,
-        location_lat: values.diningArea?.lat ?? null,
-        location_lng: values.diningArea?.lng ?? null,
-        location_place_id: values.diningArea?.placeId ?? null,
+        location_label: values.diningArea.label,
+        location_lat: values.diningArea.lat,
+        location_lng: values.diningArea.lng,
+        location_place_id: values.diningArea.placeId,
       }, { count: "exact" })
-      .eq("id", activeEditGroup.id);
+      .eq("id", activeEditGroup.id)
+      .eq("owner_id", userId)
+      .is("archived_at", null);
 
     if (updateError) {
       setSaving(false);
@@ -549,6 +606,70 @@ export default function DinersPage() {
     setModalState(null);
   }
 
+  async function handleArchiveGroup() {
+    if (!activeEditGroup) return;
+
+    if (!userId) {
+      setError("Not signed in.");
+      return;
+    }
+
+    if (activeEditGroup.owner_id !== userId) {
+      setError("Only the group owner can archive this group.");
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+    setNotice(null);
+
+    const archivedAt = new Date().toISOString();
+    const { error: archiveError, count: archivedCount } = await supabase
+      .from("groups")
+      .update(
+        {
+          archived_at: archivedAt,
+          archived_by: userId,
+          invite_token: null,
+        },
+        { count: "exact" }
+      )
+      .eq("id", activeEditGroup.id)
+      .eq("owner_id", userId)
+      .is("archived_at", null);
+
+    if (archiveError) {
+      setSaving(false);
+      setError(archiveError.message);
+      return;
+    }
+
+    if (archivedCount !== 1) {
+      setSaving(false);
+      setError("Group could not be archived. Please try again.");
+      return;
+    }
+
+    const archivedGroupName = activeEditGroup.name;
+
+    if (pendingInviteRevoke?.groupId === activeEditGroup.id) {
+      if (revokeToastTimerRef.current) {
+        window.clearTimeout(revokeToastTimerRef.current);
+        revokeToastTimerRef.current = null;
+      }
+      setPendingInviteRevoke(null);
+    }
+
+    await refreshGroups(userId);
+
+    setSaving(false);
+    setModalState(null);
+    setInviteModalState((current) =>
+      current?.groupId === activeEditGroup.id ? null : current
+    );
+    setNotice(`${archivedGroupName} archived.`);
+  }
+
   if (loading) {
     return <main style={{ padding: 24 }}>Loading…</main>;
   }
@@ -578,6 +699,7 @@ export default function DinersPage() {
               style={{ position: "absolute", left: 14, top: 12 }}
             />
             <input
+              ref={searchInputRef}
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
               placeholder="Search groups and members..."
@@ -588,13 +710,41 @@ export default function DinersPage() {
                 border: "2px solid #1d4ed8",
                 background: "white",
                 boxShadow: "0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.1)",
-                padding: "0 16px 0 40px",
+                padding: searchQuery ? "0 44px 0 40px" : "0 16px 0 40px",
                 fontSize: 16,
                 color: "#717182",
                 outline: "none",
                 boxSizing: "border-box",
               }}
             />
+            {searchQuery ? (
+              <button
+                type="button"
+                aria-label="Clear search"
+                onClick={() => {
+                  setSearchQuery("");
+                  searchInputRef.current?.focus();
+                }}
+                style={{
+                  position: "absolute",
+                  right: 8,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  width: 28,
+                  height: 28,
+                  border: "none",
+                  borderRadius: 999,
+                  background: "transparent",
+                  color: "#9ca3af",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                }}
+              >
+                <X size={16} />
+              </button>
+            ) : null}
           </div>
 
           <button
@@ -620,7 +770,7 @@ export default function DinersPage() {
               cursor: "pointer",
             }}
           >
-            <CircleUserRound size={18} />
+            <UserRound size={18} />
           </button>
         </div>
 
@@ -655,26 +805,38 @@ export default function DinersPage() {
         ) : null}
 
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-          {filteredGroups.map((group) => (
-            <GroupOverviewCard
-              key={group.id}
-              groupName={group.name}
-              memberCount={(membersByGroup[group.id] ?? []).length}
-              members={membersByGroup[group.id] ?? []}
-              ownerUserId={group.owner_id}
-              currentUserId={userId}
-              hasOpenInvite={Boolean(group.invite_token)}
-              onInvite={() => void openGroupInvite(group)}
-              onEdit={() => {
-                setError(null);
-                setNotice(null);
-                setModalState({ mode: "edit", groupId: group.id });
-              }}
-              onRevokeInvite={() => {
-                void handleRevokeInvite(group.id);
-              }}
-            />
-          ))}
+          {filteredGroups.map((group) => {
+            const isOwner = group.owner_id === userId;
+
+            return (
+              <GroupOverviewCard
+                key={group.id}
+                groupName={group.name}
+                memberCount={(membersByGroup[group.id] ?? []).length}
+                members={membersByGroup[group.id] ?? []}
+                ownerUserId={group.owner_id}
+                currentUserId={userId}
+                hasOpenInvite={Boolean(group.invite_token)}
+                onInvite={isOwner ? () => void openGroupInvite(group) : undefined}
+                onEdit={
+                  isOwner
+                    ? () => {
+                      setError(null);
+                      setNotice(null);
+                      setModalState({ mode: "edit", groupId: group.id });
+                    }
+                    : undefined
+                }
+                onRevokeInvite={
+                  isOwner
+                    ? () => {
+                      void handleRevokeInvite(group.id);
+                    }
+                    : undefined
+                }
+              />
+            );
+          })}
 
           {filteredGroups.length === 0 ? (
             <div
@@ -735,11 +897,10 @@ export default function DinersPage() {
           error={error}
           onClose={() => setModalState(null)}
           onSave={handleCreateGroup}
-          onPlaceholderAction={setNotice}
         />
       ) : null}
 
-      {modalState?.mode === "edit" && activeEditGroup ? (
+      {modalState?.mode === "edit" && activeEditGroup && activeEditGroup.owner_id === userId ? (
         <CreateEditGroupModal
           mode="edit"
           groupName={activeEditGroup.name}
@@ -769,7 +930,7 @@ export default function DinersPage() {
             setModalState(null);
             void openGroupInvite(activeEditGroup);
           }}
-          onPlaceholderAction={setNotice}
+          onArchive={() => void handleArchiveGroup()}
         />
       ) : null}
 

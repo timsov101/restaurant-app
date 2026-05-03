@@ -9,6 +9,7 @@ import {
   Search,
   Star,
   Trash2,
+  X,
 } from "lucide-react";
 
 import { pickActiveGroupId, setStoredActiveGroupId } from "@/lib/activeGroup";
@@ -117,17 +118,18 @@ function normalizeSavedRow(row: Record<string, unknown>): SavedRestaurantRow {
     restaurant_id: String(row.restaurant_id),
     group_restaurant_id:
       row.group_restaurant_id == null ? null : String(row.group_restaurant_id),
-    saved_at: row.saved_at ?? null,
+    saved_at: row.saved_at == null ? null : String(row.saved_at),
     name: String(row.name ?? "Unknown"),
-    address: row.address ?? null,
-    primary_type: row.primary_type ?? null,
+    address: row.address == null ? null : String(row.address),
+    primary_type: row.primary_type == null ? null : String(row.primary_type),
     price_level: normalizeNumber(row.price_level),
     group_avg_overall: normalizeNumber(row.group_avg_overall),
     group_avg_nutrition: normalizeNumber(row.group_avg_nutrition),
     current_user_overall: normalizeNumber(row.current_user_overall),
     current_user_nutrition: normalizeNumber(row.current_user_nutrition),
     current_user_has_rating: hasRating,
-    current_user_rating_state: row.current_user_rating_state ?? null,
+    current_user_rating_state:
+      row.current_user_rating_state == null ? null : String(row.current_user_rating_state),
     distance_miles:
       normalizeNumber(row.distance_miles) ??
       normalizeNumber(row.distanceMiles) ??
@@ -896,6 +898,7 @@ export default function RestaurantsPage() {
 
   const deleteTimerRef = useRef<number | null>(null);
   const lastAddResultsKeyRef = useRef<string | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   const savedHasDistanceData = useMemo(
     () => rows.some((row) => row.distance_miles != null),
@@ -1521,6 +1524,7 @@ export default function RestaurantsPage() {
             }}
           />
           <input
+            ref={searchInputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={
@@ -1535,13 +1539,41 @@ export default function RestaurantsPage() {
               border: "2px solid #2563eb",
               background: "white",
               boxShadow: "0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.1)",
-              padding: "0 14px 0 40px",
+              padding: query ? "0 44px 0 40px" : "0 14px 0 40px",
               fontSize: 16,
               letterSpacing: "-0.31px",
               color: "#111827",
               outline: "none",
             }}
           />
+          {query ? (
+            <button
+              type="button"
+              aria-label="Clear search"
+              onClick={() => {
+                setQuery("");
+                searchInputRef.current?.focus();
+              }}
+              style={{
+                position: "absolute",
+                right: 8,
+                top: "50%",
+                transform: "translateY(-50%)",
+                width: 28,
+                height: 28,
+                border: "none",
+                borderRadius: 999,
+                background: "transparent",
+                color: "#9ca3af",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+              }}
+            >
+              <X size={16} />
+            </button>
+          ) : null}
         </div>
       </div>
 

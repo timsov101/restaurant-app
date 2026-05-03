@@ -41,7 +41,7 @@ type CreateEditGroupModalProps = {
     removedMemberUserIds: string[];
   }) => Promise<void> | void;
   onInviteMember?: () => void;
-  onPlaceholderAction?: (message: string) => void;
+  onArchive?: () => Promise<void> | void;
 };
 
 type AreaSuggestion = {
@@ -620,30 +620,40 @@ export default function CreateEditGroupModal({
   onClose,
   onSave,
   onInviteMember,
-  onPlaceholderAction,
+  onArchive,
 }: CreateEditGroupModalProps) {
   const [name, setName] = useState(groupName);
   const [diningArea, setDiningArea] = useState<DiningAreaValue | null>(initialDiningArea);
   const [diningAreaDialogOpen, setDiningAreaDialogOpen] = useState(false);
+  const [archiveConfirmationOpen, setArchiveConfirmationOpen] = useState(false);
   const [helperMessage, setHelperMessage] = useState<string | null>(null);
   const [removedMemberUserIds, setRemovedMemberUserIds] = useState<string[]>([]);
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") onClose();
+      if (event.key !== "Escape") return;
+
+      if (archiveConfirmationOpen) {
+        setArchiveConfirmationOpen(false);
+        return;
+      }
+
+      onClose();
     }
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
+  }, [archiveConfirmationOpen, onClose]);
 
   const title = mode === "create" ? "Create New Group" : "Edit Group";
   const primaryLabel = mode === "create" ? "Create Group" : "Save Changes";
+  const canSubmit = name.trim().length > 0 && diningArea !== null && !saving;
   const visibleMembers = useMemo(
     () => members.filter((member) => !removedMemberUserIds.includes(member.user_id)),
     [members, removedMemberUserIds]
   );
   const membersCount = visibleMembers.length;
+  const stagedRemovalCount = removedMemberUserIds.length;
   const sortedMembers = useMemo(() => {
     return [...visibleMembers].sort((a, b) => {
       if (a.role !== b.role) return a.role === "owner" ? -1 : 1;
@@ -656,6 +666,7 @@ export default function CreateEditGroupModal({
 
   const showMembersSection = mode === "edit";
   const canManageMembers = mode === "edit" && ownerUserId != null && ownerUserId === currentUserId;
+  const canArchiveGroup = canManageMembers && Boolean(onArchive);
 
   return (
     <>
@@ -786,6 +797,18 @@ export default function CreateEditGroupModal({
                   Edit
                 </button>
               </div>
+              {!diningArea ? (
+                <div
+                  style={{
+                    marginTop: 8,
+                    fontSize: 12,
+                    lineHeight: "16px",
+                    color: "#6a7282",
+                  }}
+                >
+                  Default dining location is required.
+                </div>
+              ) : null}
             </section>
 
             {showMembersSection ? (
@@ -868,56 +891,36 @@ export default function CreateEditGroupModal({
                   })}
                 </div>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    setHelperMessage(null);
-                    onInviteMember?.();
-                  }}
-                  style={{
-                    marginTop: 16,
-                    width: "100%",
-                    minHeight: 36,
-                    borderRadius: 10,
-                    border: "1px solid rgba(0,0,0,0.08)",
-                    background: "#fafafa",
-                    color: "#0a0a0a",
-                    fontSize: 14,
-                    lineHeight: "20px",
-                    fontWeight: 500,
-                    letterSpacing: "-0.15px",
-                    cursor: "pointer",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 10,
-                  }}
-                >
-                  <UserRoundPlus size={16} />
-                  <span>Invite member</span>
-                </button>
+                {stagedRemovalCount > 0 ? (
+                  <div
+                    style={{
+                      marginTop: 8,
+                      fontSize: 12,
+                      lineHeight: "16px",
+                      color: "#6a7282",
+                    }}
+                  >
+                    {stagedRemovalCount === 1
+                      ? "1 member will be removed when you save."
+                      : `${stagedRemovalCount} members will be removed when you save.`}
+                  </div>
+                ) : null}
 
-                <div
-                  style={{
-                    marginTop: 16,
-                    paddingTop: 16,
-                    borderTop: "1px solid rgba(0,0,0,0.08)",
-                  }}
-                >
+                {canManageMembers && onInviteMember ? (
                   <button
                     type="button"
                     onClick={() => {
-                      const message = "Group archive flow is not part of this first structural pass.";
-                      setHelperMessage(message);
-                      onPlaceholderAction?.(message);
+                      setHelperMessage(null);
+                      onInviteMember();
                     }}
                     style={{
+                      marginTop: 16,
                       width: "100%",
                       minHeight: 36,
                       borderRadius: 10,
-                      border: "1px solid #ffa2a2",
+                      border: "1px solid rgba(0,0,0,0.08)",
                       background: "#fafafa",
-                      color: "#e7000b",
+                      color: "#0a0a0a",
                       fontSize: 14,
                       lineHeight: "20px",
                       fontWeight: 500,
@@ -929,10 +932,51 @@ export default function CreateEditGroupModal({
                       gap: 10,
                     }}
                   >
-                    <Archive size={16} />
-                    <span>Archive Group</span>
+                    <UserRoundPlus size={16} />
+                    <span>Invite member</span>
                   </button>
-                </div>
+                ) : null}
+
+                {canArchiveGroup ? (
+                  <div
+                    style={{
+                      marginTop: 16,
+                      paddingTop: 16,
+                      borderTop: "1px solid rgba(0,0,0,0.08)",
+                    }}
+                  >
+                    <button
+                      type="button"
+                      disabled={saving}
+                      onClick={() => {
+                        if (saving) return;
+                        setHelperMessage(null);
+                        setArchiveConfirmationOpen(true);
+                      }}
+                      style={{
+                        width: "100%",
+                        minHeight: 36,
+                        borderRadius: 10,
+                        border: "1px solid #ffa2a2",
+                        background: "#fafafa",
+                        color: "#e7000b",
+                        fontSize: 14,
+                        lineHeight: "20px",
+                        fontWeight: 500,
+                        letterSpacing: "-0.15px",
+                        cursor: saving ? "default" : "pointer",
+                        opacity: saving ? 0.7 : 1,
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 10,
+                      }}
+                    >
+                      <Archive size={16} />
+                      <span>Archive Group</span>
+                    </button>
+                  </div>
+                ) : null}
               </section>
             ) : null}
 
@@ -992,11 +1036,14 @@ export default function CreateEditGroupModal({
             >
               Cancel
             </button>
-              <button
-                type="button"
-                onClick={() => onSave({ name, diningArea, removedMemberUserIds })}
-                disabled={saving}
-                style={{
+            <button
+              type="button"
+              onClick={() => {
+                if (!canSubmit) return;
+                onSave({ name, diningArea, removedMemberUserIds });
+              }}
+              disabled={!canSubmit}
+              style={{
                 flex: 1,
                 height: 36,
                 borderRadius: 10,
@@ -1007,8 +1054,8 @@ export default function CreateEditGroupModal({
                 lineHeight: "20px",
                 fontWeight: 500,
                 letterSpacing: "-0.15px",
-                cursor: saving ? "default" : "pointer",
-                opacity: saving ? 0.7 : 1,
+                cursor: canSubmit ? "pointer" : "default",
+                opacity: canSubmit ? 1 : 0.5,
               }}
             >
               {saving ? "Saving..." : primaryLabel}
@@ -1026,6 +1073,110 @@ export default function CreateEditGroupModal({
             setDiningAreaDialogOpen(false);
           }}
         />
+      ) : null}
+
+      {archiveConfirmationOpen ? (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="archive-group-title"
+          aria-describedby="archive-group-description"
+          onClick={() => setArchiveConfirmationOpen(false)}
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: 180,
+            background: "rgba(17,24,39,0.55)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            padding: 16,
+          }}
+        >
+          <div
+            onClick={(event) => event.stopPropagation()}
+            style={{
+              width: "min(360px, 100%)",
+              borderRadius: 12,
+              background: "#fafafa",
+              border: "1px solid rgba(0,0,0,0.08)",
+              boxShadow: "0 10px 15px rgba(0,0,0,0.1), 0 4px 6px rgba(0,0,0,0.08)",
+              padding: 24,
+            }}
+          >
+            <div
+              id="archive-group-title"
+              style={{
+                fontSize: 20,
+                lineHeight: "28px",
+                fontWeight: 600,
+                color: "#0a0a0a",
+                textAlign: "center",
+              }}
+            >
+              Archive this group?
+            </div>
+            <p
+              id="archive-group-description"
+              style={{
+                margin: "12px 0 0",
+                fontSize: 14,
+                lineHeight: "20px",
+                color: "#4a5565",
+                textAlign: "center",
+              }}
+            >
+              This will remove the group from active use and it cannot be undone.
+            </p>
+
+            <div style={{ display: "flex", gap: 8, marginTop: 24 }}>
+              <button
+                type="button"
+                onClick={() => setArchiveConfirmationOpen(false)}
+                disabled={saving}
+                style={{
+                  flex: 1,
+                  height: 40,
+                  borderRadius: 10,
+                  border: "1px solid rgba(0,0,0,0.08)",
+                  background: "#fafafa",
+                  color: "#0a0a0a",
+                  fontSize: 14,
+                  lineHeight: "20px",
+                  fontWeight: 500,
+                  cursor: saving ? "default" : "pointer",
+                  opacity: saving ? 0.7 : 1,
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (saving) return;
+                  setArchiveConfirmationOpen(false);
+                  onArchive?.();
+                }}
+                disabled={saving}
+                style={{
+                  flex: 1,
+                  height: 40,
+                  borderRadius: 10,
+                  border: "none",
+                  background: "#dc2626",
+                  color: "white",
+                  fontSize: 14,
+                  lineHeight: "20px",
+                  fontWeight: 500,
+                  cursor: saving ? "default" : "pointer",
+                  opacity: saving ? 0.7 : 1,
+                }}
+              >
+                Archive Group
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
     </>
   );

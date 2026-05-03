@@ -8,6 +8,27 @@ import {
 
 type AddSortBy = "name" | "cost" | "distance";
 
+const METERS_PER_MILE = 1609.344;
+const DEFAULT_BIAS_RADIUS_METERS = 50_000;
+const MIN_BIAS_RADIUS_METERS = 16_000;
+const MAX_BIAS_RADIUS_METERS = 50_000;
+
+type SearchTextRequestBody = {
+  textQuery: string;
+  includedType: "restaurant";
+  pageSize: number;
+  regionCode: "US";
+  locationBias?: {
+    circle: {
+      center: {
+        latitude: number;
+        longitude: number;
+      };
+      radius: number;
+    };
+  };
+};
+
 function parseNumber(value: string | null) {
   if (!value) return null;
   const parsed = Number(value);
@@ -19,6 +40,16 @@ function compareNullableNumbersAsc(a: number | null, b: number | null) {
   if (a == null) return 1;
   if (b == null) return -1;
   return a - b;
+}
+
+function buildLocationBiasRadius(maxDistanceMiles: number | null) {
+  if (maxDistanceMiles == null) return DEFAULT_BIAS_RADIUS_METERS;
+
+  const requestedMeters = maxDistanceMiles * METERS_PER_MILE;
+  return Math.min(
+    Math.max(requestedMeters, MIN_BIAS_RADIUS_METERS),
+    MAX_BIAS_RADIUS_METERS
+  );
 }
 
 export async function GET(request: Request) {
@@ -59,6 +90,25 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Missing GOOGLE_MAPS_API_KEY" }, { status: 500 });
   }
 
+  const requestBody: SearchTextRequestBody = {
+    textQuery: textQuery || "restaurant",
+    includedType: "restaurant",
+    pageSize: 20,
+    regionCode: "US",
+  };
+
+  if (anchorLat != null && anchorLng != null) {
+    requestBody.locationBias = {
+      circle: {
+        center: {
+          latitude: anchorLat,
+          longitude: anchorLng,
+        },
+        radius: buildLocationBiasRadius(maxDistanceMiles),
+      },
+    };
+  }
+
   const response = await fetch("https://places.googleapis.com/v1/places:searchText", {
     method: "POST",
     headers: {
@@ -67,12 +117,7 @@ export async function GET(request: Request) {
       "X-Goog-FieldMask":
         "places.id,places.displayName,places.formattedAddress,places.primaryType,places.types,places.priceLevel,places.location",
     },
-    body: JSON.stringify({
-      textQuery: textQuery || "restaurant",
-      includedType: "restaurant",
-      pageSize: 20,
-      regionCode: "US",
-    }),
+    body: JSON.stringify(requestBody),
     cache: "no-store",
   });
 

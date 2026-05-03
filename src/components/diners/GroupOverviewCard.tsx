@@ -15,8 +15,8 @@ type GroupOverviewCardProps = {
   ownerUserId: string;
   currentUserId: string | null;
   hasOpenInvite: boolean;
-  onInvite: () => void;
-  onEdit: () => void;
+  onInvite?: () => void;
+  onEdit?: () => void;
   onRevokeInvite?: () => void;
 };
 
@@ -104,47 +104,53 @@ export default function GroupOverviewCard({
           </div>
         </div>
 
-        <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
-          <button
-            type="button"
-            onClick={onInvite}
-            aria-label={`Invite members to ${groupName}`}
-            style={{
-              width: 36,
-              height: 36,
-              borderRadius: 12,
-              border: "none",
-              background: "transparent",
-              color: "#9ca3af",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer",
-            }}
-          >
-            <UserRoundPlus size={18} />
-          </button>
+        {onInvite || onEdit ? (
+          <div style={{ display: "flex", alignItems: "center", gap: 4, flexShrink: 0 }}>
+            {onInvite ? (
+              <button
+                type="button"
+                onClick={onInvite}
+                aria-label={`Invite members to ${groupName}`}
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 12,
+                  border: "none",
+                  background: "transparent",
+                  color: "#9ca3af",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                }}
+              >
+                <UserRoundPlus size={18} />
+              </button>
+            ) : null}
 
-          <button
-            type="button"
-            onClick={onEdit}
-            aria-label={`Edit ${groupName}`}
-            style={{
-              width: 36,
-              height: 36,
-              borderRadius: 12,
-              border: "none",
-              background: "transparent",
-              color: "#9ca3af",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer",
-            }}
-          >
-            <Pencil size={18} />
-          </button>
-        </div>
+            {onEdit ? (
+              <button
+                type="button"
+                onClick={onEdit}
+                aria-label={`Edit ${groupName}`}
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: 12,
+                  border: "none",
+                  background: "transparent",
+                  color: "#9ca3af",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                }}
+              >
+                <Pencil size={18} />
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
 
       <div
@@ -170,7 +176,7 @@ export default function GroupOverviewCard({
         })}
       </div>
 
-      {hasOpenInvite ? (
+      {hasOpenInvite && onRevokeInvite ? (
         <button
           type="button"
           onClick={onRevokeInvite}
@@ -186,7 +192,7 @@ export default function GroupOverviewCard({
             lineHeight: "20px",
             fontWeight: 500,
             letterSpacing: "-0.15px",
-            cursor: onRevokeInvite ? "pointer" : "default",
+            cursor: "pointer",
           }}
         >
           Revoke open invite

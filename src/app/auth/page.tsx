@@ -3,8 +3,9 @@
 import { ArrowLeft } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { Suspense, type CSSProperties, useEffect, useState } from "react";
+import { Suspense, type CSSProperties, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import type { Session } from "@supabase/supabase-js";
 
 import { supabase } from "@/lib/supabaseClient";
 
@@ -118,6 +119,10 @@ function normalizeEmail(value: string) {
   return value.trim().toLowerCase();
 }
 
+function resolveProfileDisplayName(displayName: string, email: string) {
+  return displayName.trim() || email;
+}
+
 function AuthPageContent() {
   const [isSignedIn, setIsSignedIn] = useState(false);
   const [email, setEmail] = useState<string | null>(null);
@@ -128,6 +133,7 @@ function AuthPageContent() {
   const [signupPassword, setSignupPassword] = useState("");
   const [signinEmail, setSigninEmail] = useState("");
   const [signinPassword, setSigninPassword] = useState("");
+  const authSubmitInProgressRef = useRef(false);
 
   const searchParams = useSearchParams();
   const nextUrl = searchParams.get("next");
@@ -138,19 +144,9 @@ function AuthPageContent() {
     searchParams.get("invite") === "1" && Boolean(nextUrl?.startsWith("/invite/"));
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data }) => {
-      const has = Boolean(data.session);
-      setIsSignedIn(has);
-      setEmail(data.session?.user.email ?? null);
+    function redirectAfterAuth(session: Session | null) {
+      if (authSubmitInProgressRef.current) return;
 
-      if (has && nextUrl) {
-        window.location.href = decodeURIComponent(nextUrl);
-      } else if (has && !inviteContext) {
-        window.location.href = "/eat";
-      }
-    });
-
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
       const has = Boolean(session);
       setIsSignedIn(has);
       setEmail(session?.user.email ?? null);
@@ -160,6 +156,14 @@ function AuthPageContent() {
       } else if (has && !inviteContext) {
         window.location.href = "/eat";
       }
+    }
+
+    supabase.auth.getSession().then(({ data }) => {
+      redirectAfterAuth(data.session);
+    });
+
+    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
+      redirectAfterAuth(session);
     });
 
     return () => {
@@ -178,6 +182,91 @@ function AuthPageContent() {
     inviteMode === "signup"
       ? `Create an account to join ${groupName}`
       : `Sign in to join ${groupName}`;
+
+  async function createAccountAndSaveProfile({
+    email,
+    password,
+    displayName,
+  }: {
+    email: string;
+    password: string;
+    displayName: string;
+  }) {
+    const profileDisplayName = resolveProfileDisplayName(displayName, email);
+
+    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          name: profileDisplayName,
+          display_name: profileDisplayName,
+        },
+      },
+    });
+
+    if (signUpError) {
+      throw new Error(signUpError.message);
+    }
+
+    if (!signUpData.session) {
+      console.warn("Supabase signUp did not return a session", {
+        hasUser: Boolean(signUpData.user),
+        email,
+      });
+      throw new Error(
+        "Account created, but you were not signed in automatically. Please sign in with your email and password to continue."
+      );
+    }
+
+    const userId = signUpData.session.user.id;
+
+    const { error: userMetadataError } = await supabase.auth.updateUser({
+      data: {
+        name: profileDisplayName,
+        display_name: profileDisplayName,
+      },
+    });
+
+    if (userMetadataError) {
+      console.warn("Unable to update auth display name metadata after signup", {
+        message: userMetadataError.message,
+      });
+    }
+
+    const { data: existingProfile, error: profileReadError } = await supabase
+      .from("profiles")
+      .select("display_name")
+      .eq("id", userId)
+      .maybeSingle();
+
+    if (profileReadError) {
+      console.warn("Unable to read profile before saving display name", {
+        code: profileReadError.code,
+        message: profileReadError.message,
+        details: profileReadError.details,
+        hint: profileReadError.hint,
+      });
+    }
+
+    const existingDisplayName =
+      typeof existingProfile?.display_name === "string" ? existingProfile.display_name.trim() : "";
+    const nextDisplayName = displayName.trim() || existingDisplayName || email;
+
+    const { error: profileError } = await supabase
+      .from("profiles")
+      .upsert({ id: userId, display_name: nextDisplayName }, { onConflict: "id" });
+
+    if (profileError) {
+      console.warn("Unable to save profile display name after signup", {
+        code: profileError.code,
+        message: profileError.message,
+        details: profileError.details,
+        hint: profileError.hint,
+      });
+      throw new Error(`Account created, but your preferred name could not be saved: ${profileError.message}`);
+    }
+  }
 
   async function handleInviteSignUp(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -201,39 +290,23 @@ function AuthPageContent() {
       return;
     }
 
+    authSubmitInProgressRef.current = true;
     setAuthenticating(true);
     setError(null);
 
-    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-      email: normalizedEmail,
-      password,
-    });
+    try {
+      await createAccountAndSaveProfile({
+        email: normalizedEmail,
+        password,
+        displayName,
+      });
 
-    if (signUpError) {
+      window.location.href = nextInvitePath;
+    } catch (signUpError) {
+      authSubmitInProgressRef.current = false;
       setAuthenticating(false);
-      setError(signUpError.message);
-      return;
+      setError(signUpError instanceof Error ? signUpError.message : "Unable to create account.");
     }
-
-    const userId = signUpData.user?.id ?? signUpData.session?.user?.id ?? null;
-    if (!userId) {
-      setAuthenticating(false);
-      setError("Account created, but no user session was returned.");
-      return;
-    }
-
-    const { error: profileError } = await supabase
-      .from("profiles")
-      .upsert({ id: userId, display_name: displayName }, { onConflict: "id" });
-
-    if (profileError) {
-      await supabase.auth.signOut();
-      setAuthenticating(false);
-      setError(profileError.message);
-      return;
-    }
-
-    window.location.href = nextInvitePath;
   }
 
   async function handleInviteSignIn(event: React.FormEvent<HTMLFormElement>) {
@@ -291,39 +364,23 @@ function AuthPageContent() {
       return;
     }
 
+    authSubmitInProgressRef.current = true;
     setAuthenticating(true);
     setError(null);
 
-    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-      email: normalizedEmail,
-      password,
-    });
+    try {
+      await createAccountAndSaveProfile({
+        email: normalizedEmail,
+        password,
+        displayName,
+      });
 
-    if (signUpError) {
+      window.location.href = nextUrl ? decodeURIComponent(nextUrl) : "/diners";
+    } catch (signUpError) {
+      authSubmitInProgressRef.current = false;
       setAuthenticating(false);
-      setError(signUpError.message);
-      return;
+      setError(signUpError instanceof Error ? signUpError.message : "Unable to create account.");
     }
-
-    const userId = signUpData.user?.id ?? signUpData.session?.user?.id ?? null;
-    if (!userId) {
-      setAuthenticating(false);
-      setError("Account created, but no user session was returned.");
-      return;
-    }
-
-    const { error: profileError } = await supabase
-      .from("profiles")
-      .upsert({ id: userId, display_name: displayName }, { onConflict: "id" });
-
-    if (profileError) {
-      await supabase.auth.signOut();
-      setAuthenticating(false);
-      setError(profileError.message);
-      return;
-    }
-
-    window.location.href = nextUrl ? decodeURIComponent(nextUrl) : "/diners";
   }
 
   async function handleNormalSignIn(event: React.FormEvent<HTMLFormElement>) {

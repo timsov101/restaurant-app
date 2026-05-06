@@ -820,7 +820,7 @@ export default function InviteJoinPage() {
                 textAlign: "center",
               }}
             >
-              Add Restaurant App to your Home Screen
+              Add Whistle to your Home Screen
             </div>
             <p
               style={{

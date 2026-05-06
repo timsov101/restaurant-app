@@ -3,8 +3,6 @@ import type { Metadata } from "next";
 import {
   getInvitePreviewOrigin,
   invitePreviewDescription,
-  invitePreviewTitle,
-  loadInvitePreviewGroupName,
 } from "@/lib/invitePreviewMetadata";
 
 type InviteLayoutProps = {
@@ -19,16 +17,21 @@ export async function generateMetadata({
   params,
 }: InviteMetadataProps): Promise<Metadata> {
   const { token } = await params;
-  const groupName = await loadInvitePreviewGroupName(token);
-  const title = invitePreviewTitle(groupName);
   const origin = getInvitePreviewOrigin();
   const invitePath = `/invite/${encodeURIComponent(token)}`;
   const imagePath = `${invitePath}/opengraph-image`;
+  const title = "Whistle";
 
   return {
     metadataBase: new URL(origin),
     title,
     description: invitePreviewDescription,
+    manifest: "/manifest.webmanifest",
+    appleWebApp: {
+      capable: true,
+      title: "Whistle",
+      statusBarStyle: "default",
+    },
     openGraph: {
       title,
       description: invitePreviewDescription,

@@ -220,6 +220,20 @@ function AuthPageContent() {
     }
 
     const userId = signUpData.session.user.id;
+
+    const { error: userMetadataError } = await supabase.auth.updateUser({
+      data: {
+        name: profileDisplayName,
+        display_name: profileDisplayName,
+      },
+    });
+
+    if (userMetadataError) {
+      console.warn("Unable to update auth display name metadata after signup", {
+        message: userMetadataError.message,
+      });
+    }
+
     const { data: existingProfile, error: profileReadError } = await supabase
       .from("profiles")
       .select("display_name")

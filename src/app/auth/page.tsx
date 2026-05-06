@@ -178,10 +178,6 @@ function AuthPageContent() {
       ? "Already have an account? Sign in"
       : "Don't have an account? Create one";
   const authTitle = inviteMode === "signup" ? "Create account" : "Sign in";
-  const authSubtitle =
-    inviteMode === "signup"
-      ? `Create an account to join ${groupName}`
-      : `Sign in to join ${groupName}`;
 
   async function createAccountAndSaveProfile({
     email,
@@ -476,18 +472,6 @@ function AuthPageContent() {
             priority
             style={{ width: 160, height: 160, display: "block" }}
           />
-
-          <p
-            style={{
-              margin: 0,
-              fontSize: 14,
-              lineHeight: "20px",
-              color: "#4a5565",
-              textAlign: "center",
-            }}
-          >
-            {authSubtitle}
-          </p>
 
           <div style={inviteCardStyle()}>
             <div

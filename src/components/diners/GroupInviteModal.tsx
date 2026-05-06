@@ -67,8 +67,6 @@ export default function GroupInviteModal({
 
     try {
       await navigator.share({
-        title: "Whistle",
-        text: "Open this link to join the group on Whistle.",
         url: inviteUrl,
       });
       setFeedback({ tone: "success", message: "Invite link shared." });

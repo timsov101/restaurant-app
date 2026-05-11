@@ -14,7 +14,7 @@ RETURNS text
 LANGUAGE sql
 AS $$
   SELECT rtrim(
-    replace(replace(encode(gen_random_bytes(32), 'base64'), '+', '-'), '/', '_'),
+    replace(replace(encode(extensions.gen_random_bytes(32), 'base64'), '+', '-'), '/', '_'),
     '='
   );
 $$;

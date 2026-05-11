@@ -48,6 +48,7 @@ function matchesFilters(row: HistoryRow, filters: HistoryFilters) {
 export default function HistoryPage() {
   const [groups, setGroups] = useState<ActiveGroupOption[]>([]);
   const [groupId, setGroupId] = useState("");
+  const [userId, setUserId] = useState<string | null>(null);
   const [groupModalOpen, setGroupModalOpen] = useState(false);
   const [rows, setRows] = useState<HistoryRow[]>([]);
   const [q, setQ] = useState("");
@@ -88,14 +89,16 @@ export default function HistoryPage() {
     const id = window.setTimeout(() => {
       void (async () => {
         const { data: sessionData } = await supabase.auth.getSession();
-        const userId = sessionData.session?.user?.id ?? null;
+        const uid = sessionData.session?.user?.id ?? null;
 
-        if (!userId) {
+        if (!uid) {
           window.location.href = "/auth?next=%2Fhistory";
           return;
         }
 
-        const { groups: nextGroups, error } = await loadUserActiveGroups(userId);
+        setUserId(uid);
+
+        const { groups: nextGroups, error } = await loadUserActiveGroups(uid);
         if (error) {
           setLoading(false);
           setErr(error);
@@ -289,12 +292,15 @@ export default function HistoryPage() {
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
           {filtered.map((r) => {
             const isDeleting = deleting === r.event_id;
+            const canDelete =
+              userId != null && (r.created_by === userId || activeGroup?.owner_id === userId);
 
             return (
               <HistoryCard
                 key={r.event_id}
                 row={r}
                 isDeleting={isDeleting}
+                canDelete={canDelete}
                 disableDelete={deleting !== null}
                 onDelete={() => requestDelete(r)}
               />

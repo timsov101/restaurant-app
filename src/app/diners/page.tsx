@@ -144,6 +144,7 @@ function RevokeInviteToast({
 export default function DinersPage() {
   const [loading, setLoading] = useState(true);
   const [userId, setUserId] = useState<string | null>(null);
+  const [canCreateGroups, setCanCreateGroups] = useState(false);
   const [groups, setGroups] = useState<Group[]>([]);
   const [membersByGroup, setMembersByGroup] = useState<Record<string, Member[]>>({});
   const [searchQuery, setSearchQuery] = useState("");
@@ -211,6 +212,22 @@ export default function DinersPage() {
     await loadMembersForGroups(nextGroups);
   }
 
+  async function loadCreateGroupPermission(uid: string) {
+    const { data, error: profileError } = await supabase
+      .from("profiles")
+      .select("can_create_groups")
+      .eq("id", uid)
+      .maybeSingle();
+
+    if (profileError) {
+      setError(profileError.message);
+      setCanCreateGroups(false);
+      return;
+    }
+
+    setCanCreateGroups(Boolean(data?.can_create_groups));
+  }
+
   useEffect(() => {
     let mounted = true;
 
@@ -232,7 +249,7 @@ export default function DinersPage() {
         return;
       }
 
-      await refreshGroups(uid);
+      await Promise.all([refreshGroups(uid), loadCreateGroupPermission(uid)]);
       setLoading(false);
     })();
 
@@ -480,6 +497,10 @@ export default function DinersPage() {
     }
     if (!userId) {
       setError("Not signed in.");
+      return;
+    }
+    if (!canCreateGroups) {
+      setError("This beta account is not approved to create groups yet.");
       return;
     }
 
@@ -852,38 +873,42 @@ export default function DinersPage() {
               }}
             >
               {groups.length === 0
-                ? "No groups yet. Create your first group to get started."
+                ? canCreateGroups
+                  ? "No groups yet. Create your first group to get started."
+                  : "No groups yet. Ask a group owner for an invite to join."
                 : "No groups or members match your search."}
             </div>
           ) : null}
 
-          <button
-            type="button"
-            onClick={() => {
-              setError(null);
-              setNotice(null);
-              setModalState({ mode: "create" });
-            }}
-            style={{
-              minHeight: 48,
-              borderRadius: 10,
-              border: "2px dashed #d1d5dc",
-              background: "#fafafa",
-              color: "#4a5565",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              gap: 10,
-              fontSize: 14,
-              lineHeight: "20px",
-              fontWeight: 500,
-              letterSpacing: "-0.15px",
-              cursor: "pointer",
-            }}
-          >
-            <Plus size={16} />
-            <span>Add group</span>
-          </button>
+          {canCreateGroups ? (
+            <button
+              type="button"
+              onClick={() => {
+                setError(null);
+                setNotice(null);
+                setModalState({ mode: "create" });
+              }}
+              style={{
+                minHeight: 48,
+                borderRadius: 10,
+                border: "2px dashed #d1d5dc",
+                background: "#fafafa",
+                color: "#4a5565",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                gap: 10,
+                fontSize: 14,
+                lineHeight: "20px",
+                fontWeight: 500,
+                letterSpacing: "-0.15px",
+                cursor: "pointer",
+              }}
+            >
+              <Plus size={16} />
+              <span>Add group</span>
+            </button>
+          ) : null}
         </div>
       </div>
 

@@ -8,6 +8,7 @@ export type HistoryRow = {
   chosen_at: string;
   group_id: string;
   group_name: string;
+  created_by: string;
   restaurant_id: string;
   restaurant_name: string;
   restaurant_address: string | null;
@@ -18,6 +19,7 @@ export type HistoryRow = {
 type HistoryCardProps = {
   row: HistoryRow;
   isDeleting: boolean;
+  canDelete: boolean;
   disableDelete: boolean;
   onDelete: () => void;
 };
@@ -92,6 +94,7 @@ function HistoryAttendeeChip({ label }: { label: string }) {
 export default function HistoryCard({
   row,
   isDeleting,
+  canDelete,
   disableDelete,
   onDelete,
 }: HistoryCardProps) {
@@ -144,29 +147,31 @@ export default function HistoryCard({
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={onDelete}
-          disabled={disableDelete}
-          title="Delete"
-          style={{
-            width: 36,
-            height: 36,
-            borderRadius: 12,
-            border: "none",
-            background: "transparent",
-            color: "#99a1af",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            cursor: disableDelete ? "default" : "pointer",
-            opacity: disableDelete && !isDeleting ? 0.45 : 1,
-            flex: "0 0 auto",
-          }}
-          aria-label={`Delete ${row.restaurant_name}`}
-        >
-          <Trash2 size={18} strokeWidth={1.75} />
-        </button>
+        {canDelete ? (
+          <button
+            type="button"
+            onClick={onDelete}
+            disabled={disableDelete}
+            title="Delete"
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: 12,
+              border: "none",
+              background: "transparent",
+              color: "#99a1af",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: disableDelete ? "default" : "pointer",
+              opacity: disableDelete && !isDeleting ? 0.45 : 1,
+              flex: "0 0 auto",
+            }}
+            aria-label={`Delete ${row.restaurant_name}`}
+          >
+            <Trash2 size={18} strokeWidth={1.75} />
+          </button>
+        ) : null}
       </div>
 
       <div

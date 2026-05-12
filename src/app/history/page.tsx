@@ -5,7 +5,7 @@ import { supabase } from "@/lib/supabaseClient";
 import { pickActiveGroupId, setStoredActiveGroupId } from "@/lib/activeGroup";
 import type { ActiveGroupOption } from "@/lib/activeGroupData";
 import { loadUserActiveGroups } from "@/lib/activeGroupData";
-import { Search, X } from "lucide-react";
+import { Plus, Search, X } from "lucide-react";
 import ActiveGroupModal from "@/components/ActiveGroupModal";
 import ActiveGroupTrigger from "@/components/ActiveGroupTrigger";
 import StatePanel from "@/components/StatePanel";
@@ -13,6 +13,7 @@ import TopControlRow from "@/components/TopControlRow";
 import HistoryCard, { HistoryRow } from "./HistoryCard";
 import { formatCuisineLabel } from "./HistoryCuisine";
 import HistoryFiltersModal, { HistoryFilters } from "./HistoryFiltersModal";
+import ManualAddHistoryEventModal from "./ManualAddHistoryEventModal";
 
 const defaultFilters: HistoryFilters = {
   cuisines: [],
@@ -60,6 +61,7 @@ export default function HistoryPage() {
   const [filters, setFilters] = useState<HistoryFilters>(defaultFilters);
   const [draftFilters, setDraftFilters] = useState<HistoryFilters>(defaultFilters);
   const [hasGroups, setHasGroups] = useState(true);
+  const [manualAddOpen, setManualAddOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const filtersActive = filters.cuisines.length > 0;
   const activeGroup = useMemo(
@@ -219,66 +221,98 @@ export default function HistoryPage() {
         }
       />
 
-      <div style={{ position: "relative", marginBottom: 12 }}>
-        <Search
-          color="#9ca3af"
-          size={16}
-          style={{
-            position: "absolute",
-            left: 14,
-            top: "50%",
-            transform: "translateY(-50%)",
-            pointerEvents: "none",
-          }}
-        />
-        <input
-          ref={searchInputRef}
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Search group, restaurant, cuisine, diners..."
-          style={{
-            width: "100%",
-            height: 40,
-            borderRadius: 999,
-            border: "2px solid #1d4ed8",
-            background: "white",
-            padding: q ? "8px 44px 8px 38px" : "8px 14px 8px 38px",
-            boxShadow: "0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.1)",
-            outline: "none",
-            fontSize: 16,
-            fontWeight: 400,
-            letterSpacing: "-0.01em",
-            color: "#111827",
-          }}
-        />
-        {q ? (
-          <button
-            type="button"
-            aria-label="Clear search"
-            onClick={() => {
-              setQ("");
-              searchInputRef.current?.focus();
-            }}
+      <div style={{ display: "flex", gap: 10, alignItems: "center", marginBottom: 12 }}>
+        <div style={{ position: "relative", flex: "1 1 auto", minWidth: 0 }}>
+          <Search
+            color="#9ca3af"
+            size={16}
             style={{
               position: "absolute",
-              right: 8,
+              left: 14,
               top: "50%",
               transform: "translateY(-50%)",
-              width: 28,
-              height: 28,
-              border: "none",
-              borderRadius: 999,
-              background: "transparent",
-              color: "#9ca3af",
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              cursor: "pointer",
+              pointerEvents: "none",
             }}
-          >
-            <X size={16} />
-          </button>
-        ) : null}
+          />
+          <input
+            ref={searchInputRef}
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search group, restaurant, cuisine, diners..."
+            style={{
+              width: "100%",
+              height: 40,
+              borderRadius: 999,
+              border: "2px solid #1d4ed8",
+              background: "white",
+              padding: q ? "8px 44px 8px 38px" : "8px 14px 8px 38px",
+              boxShadow: "0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.1)",
+              outline: "none",
+              fontSize: 16,
+              fontWeight: 400,
+              letterSpacing: "-0.01em",
+              color: "#111827",
+            }}
+          />
+          {q ? (
+            <button
+              type="button"
+              aria-label="Clear search"
+              onClick={() => {
+                setQ("");
+                searchInputRef.current?.focus();
+              }}
+              style={{
+                position: "absolute",
+                right: 8,
+                top: "50%",
+                transform: "translateY(-50%)",
+                width: 28,
+                height: 28,
+                border: "none",
+                borderRadius: 999,
+                background: "transparent",
+                color: "#9ca3af",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                cursor: "pointer",
+              }}
+            >
+              <X size={16} />
+            </button>
+          ) : null}
+        </div>
+
+        <button
+          type="button"
+          onClick={() => {
+            setErr(null);
+            setManualAddOpen(true);
+          }}
+          disabled={!hasGroups || !groupId}
+          style={{
+            height: 40,
+            borderRadius: 999,
+            border: "none",
+            background: "#1d4ed8",
+            color: "white",
+            padding: "0 14px",
+            display: "inline-flex",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 6,
+            fontSize: 14,
+            fontWeight: 700,
+            whiteSpace: "nowrap",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.1), 0 1px 2px rgba(0,0,0,0.1)",
+            cursor: !hasGroups || !groupId ? "default" : "pointer",
+            opacity: !hasGroups || !groupId ? 0.55 : 1,
+          }}
+        >
+          <Plus size={16} />
+          <span>Add event</span>
+        </button>
       </div>
 
       {err && <div style={{ color: "crimson", marginBottom: 10 }}>{err}</div>}
@@ -330,6 +364,14 @@ export default function HistoryPage() {
         onChange={setDraftFilters}
         onReset={() => setDraftFilters(defaultFilters)}
         onApply={applyFilters}
+      />
+
+      <ManualAddHistoryEventModal
+        open={manualAddOpen}
+        groupId={groupId}
+        userId={userId}
+        onClose={() => setManualAddOpen(false)}
+        onSaved={() => loadHistory(groupId)}
       />
 
       {deleteConfirmation ? (

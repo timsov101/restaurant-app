@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowLeft, CalendarDays, Check, Search, X } from "lucide-react";
 
 import { supabase } from "@/lib/supabaseClient";
+import { formatRestaurantAddress } from "@/lib/formatRestaurantAddress";
 import HistoryCuisine from "./HistoryCuisine";
 
 type ManualAddStep = "restaurant" | "date" | "diners";
@@ -120,7 +121,7 @@ function RestaurantOption({
               color: "#6a7282",
             }}
           >
-            {restaurant.address}
+            {formatRestaurantAddress(restaurant.address)}
           </div>
         ) : null}
       </div>

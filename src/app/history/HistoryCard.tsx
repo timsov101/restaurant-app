@@ -1,6 +1,7 @@
 "use client";
 
 import { CalendarDays, Trash2, Users } from "lucide-react";
+import { formatRestaurantAddress } from "@/lib/formatRestaurantAddress";
 import HistoryCuisine from "./HistoryCuisine";
 
 export type HistoryRow = {
@@ -99,7 +100,7 @@ export default function HistoryCard({
   onDelete,
 }: HistoryCardProps) {
   const diners = parseDiners(row.diners);
-  const address = row.restaurant_address ?? "Address unavailable";
+  const address = formatRestaurantAddress(row.restaurant_address) ?? "Address unavailable";
 
   return (
     <article

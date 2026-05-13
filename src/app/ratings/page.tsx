@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { formatRestaurantAddress } from "@/lib/formatRestaurantAddress";
 import { supabase } from "@/lib/supabaseClient";
 
 type Restaurant = {
@@ -239,7 +240,7 @@ export default function RatingsPage() {
                 <div style={{ fontSize: 16, fontWeight: 700 }}>{r.name}</div>
                 {r.address && (
                   <div style={{ fontSize: 12, opacity: 0.75, marginTop: 4 }}>
-                    {r.address}
+                    {formatRestaurantAddress(r.address)}
                   </div>
                 )}
 

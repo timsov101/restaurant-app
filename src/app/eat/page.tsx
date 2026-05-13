@@ -6,6 +6,7 @@ import { pickActiveGroupId, setStoredActiveGroupId } from "@/lib/activeGroup";
 import type { ActiveGroupOption } from "@/lib/activeGroupData";
 import { loadUserActiveGroups } from "@/lib/activeGroupData";
 import { hasDistanceUpperBound } from "@/lib/distanceFilter";
+import { formatRestaurantAddress } from "@/lib/formatRestaurantAddress";
 import EatFiltersModal, { EatFilters } from "./EatFiltersModal";
 import ActiveGroupModal from "@/components/ActiveGroupModal";
 import ActiveGroupTrigger from "@/components/ActiveGroupTrigger";
@@ -447,7 +448,7 @@ function PickMyOwnCard({
                 marginBottom: 12,
               }}
             >
-              {restaurant.address}
+              {formatRestaurantAddress(restaurant.address)}
             </div>
           ) : null}
 
@@ -896,7 +897,7 @@ function RecommendationCard({
                 marginBottom: 12,
               }}
             >
-              {row.address}
+              {formatRestaurantAddress(row.address)}
             </div>
           ) : (
             <div style={{ height: 15, marginBottom: 12 }} />
@@ -1728,7 +1729,7 @@ export default function EatPage() {
                     marginBottom: 12,
                   }}
                 >
-                  {chosenDetails.address}
+                  {formatRestaurantAddress(chosenDetails.address)}
                 </div>
               )}
 

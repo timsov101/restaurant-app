@@ -16,6 +16,7 @@ import { pickActiveGroupId, setStoredActiveGroupId } from "@/lib/activeGroup";
 import type { ActiveGroupOption } from "@/lib/activeGroupData";
 import { loadUserActiveGroups } from "@/lib/activeGroupData";
 import { hasDistanceUpperBound } from "@/lib/distanceFilter";
+import { formatRestaurantAddress } from "@/lib/formatRestaurantAddress";
 import { supabase } from "@/lib/supabaseClient";
 import ActiveGroupModal from "@/components/ActiveGroupModal";
 import ActiveGroupTrigger from "@/components/ActiveGroupTrigger";
@@ -617,7 +618,7 @@ function SavedRestaurantCard({
                 marginBottom: 12,
               }}
             >
-              {row.address}
+              {formatRestaurantAddress(row.address)}
             </div>
           ) : (
             <div style={{ height: 15, marginBottom: 12 }} />
@@ -806,7 +807,7 @@ function AddRestaurantCard({
                 marginBottom: 12,
               }}
             >
-              {row.address}
+              {formatRestaurantAddress(row.address)}
             </div>
           ) : (
             <div style={{ height: 15, marginBottom: 12 }} />

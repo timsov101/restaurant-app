@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
+import { formatRestaurantAddress } from "@/lib/formatRestaurantAddress";
 import { supabase } from "@/lib/supabaseClient";
 
 type RecRow = {
@@ -137,7 +138,7 @@ export default function EventPage() {
                     </div>
                     {r.address && (
                       <div style={{ fontSize: 12, opacity: 0.75, marginTop: 4 }}>
-                        {r.address}
+                        {formatRestaurantAddress(r.address)}
                       </div>
                     )}
 

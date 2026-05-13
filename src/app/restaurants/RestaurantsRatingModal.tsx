@@ -1,11 +1,12 @@
 "use client";
 
 import { useEffect } from "react";
-import { Leaf, Star, X } from "lucide-react";
+import { DollarSign, Leaf, Star, X } from "lucide-react";
 
 type RatingDraft = {
   overall: number | null;
   nutrition: number | null;
+  costLevel: number | null;
 };
 
 type RestaurantsRatingModalProps = {
@@ -17,11 +18,19 @@ type RestaurantsRatingModalProps = {
   closeLabel?: string;
   primaryLabel?: string;
   secondaryLabel?: string | null;
+  costNote?: string | null;
   onClose: () => void;
   onChange: (draft: RatingDraft) => void;
   onSave: () => void;
   onSecondaryAction?: () => void;
 };
+
+const costOptions = [
+  { level: 1, label: "$", range: "$0-15" },
+  { level: 2, label: "$$", range: "$16-25" },
+  { level: 3, label: "$$$", range: "$26-40" },
+  { level: 4, label: "$$$$", range: "$41+" },
+];
 
 function scoreText(value: number | null) {
   return `${value ?? 0}/5`;
@@ -44,6 +53,7 @@ export default function RestaurantsRatingModal({
   closeLabel = "Cancel",
   primaryLabel = "Save Rating",
   secondaryLabel = "Cancel",
+  costNote = null,
   onClose,
   onChange,
   onSave,
@@ -212,6 +222,20 @@ export default function RestaurantsRatingModal({
             >
               {scoreText(draft.overall)}
             </div>
+
+            {costNote ? (
+              <div
+                style={{
+                  marginTop: 8,
+                  fontSize: 12,
+                  lineHeight: "16px",
+                  color: "#6a7282",
+                  textAlign: "center",
+                }}
+              >
+                {costNote}
+              </div>
+            ) : null}
           </section>
 
           <section>
@@ -290,6 +314,70 @@ export default function RestaurantsRatingModal({
               }}
             >
               {scoreText(draft.nutrition)}
+            </div>
+          </section>
+
+          <section>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                fontSize: 14,
+                fontWeight: 600,
+                color: "#0a0a0a",
+              }}
+            >
+              <DollarSign size={16} color="#2563eb" strokeWidth={1.8} />
+              <span>Cost per person</span>
+            </div>
+
+            <div
+              style={{
+                display: "grid",
+                gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+                gap: 8,
+                marginTop: 12,
+              }}
+            >
+              {costOptions.map((option) => {
+                const selected = draft.costLevel === option.level;
+
+                return (
+                  <button
+                    key={option.level}
+                    type="button"
+                    onClick={() =>
+                      onChange({
+                        ...draft,
+                        costLevel: option.level,
+                      })
+                    }
+                    style={{
+                      minHeight: 54,
+                      borderRadius: 10,
+                      border: selected
+                        ? "1.892px solid #1d4ed8"
+                        : "1.892px solid #d1d5dc",
+                      background: selected ? "#1d4ed8" : "white",
+                      color: selected ? "white" : "#4a5565",
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 2,
+                      cursor: "pointer",
+                    }}
+                  >
+                    <span style={{ fontSize: 16, lineHeight: "20px", fontWeight: 700 }}>
+                      {option.label}
+                    </span>
+                    <span style={{ fontSize: 12, lineHeight: "16px", fontWeight: 500 }}>
+                      {option.range}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </section>
 

@@ -59,7 +59,7 @@ type RestaurantsFiltersModalProps = {
 };
 
 function dollarsForLevel(level: number) {
-  const n = Math.max(1, Math.min(5, level + 1));
+  const n = Math.max(1, Math.min(4, level));
   return "$".repeat(n);
 }
 
@@ -328,7 +328,7 @@ export default function RestaurantsFiltersModal({
                   gap: 8,
                 }}
               >
-                {[0, 1, 2, 3].map((level) => {
+                {[1, 2, 3, 4].map((level) => {
                   const selected = filters.maxPriceLevel === level;
 
                   return (

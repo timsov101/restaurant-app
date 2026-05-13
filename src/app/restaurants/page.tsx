@@ -39,6 +39,9 @@ type SavedRestaurantRow = {
   address: string | null;
   primary_type: string | null;
   price_level: number | null;
+  google_price_level?: number | null;
+  cost_override_level?: number | null;
+  effective_cost_level?: number | null;
   group_avg_overall?: number | null;
   group_avg_nutrition?: number | null;
   current_user_overall?: number | null;
@@ -67,6 +70,7 @@ type PendingDelete = {
 type RatingDraft = {
   overall: number | null;
   nutrition: number | null;
+  costLevel: number | null;
 };
 
 type AddSaveModalState = {
@@ -94,8 +98,15 @@ function prettyCuisine(primaryType: string | null) {
 
 function priceDollar(priceLevel: number | null) {
   if (priceLevel == null) return null;
-  const n = Math.max(1, Math.min(5, priceLevel + 1));
+  const n = Math.max(1, Math.min(4, priceLevel));
   return "$".repeat(n);
+}
+
+function normalizeCostLevel(value: unknown) {
+  const normalized = normalizeNumber(value);
+  if (normalized == null) return null;
+  if (normalized < 1 || normalized > 4) return null;
+  return Math.round(normalized);
 }
 
 function normalizeNumber(value: unknown) {
@@ -123,6 +134,13 @@ function normalizeSavedRow(row: Record<string, unknown>): SavedRestaurantRow {
     address: row.address == null ? null : String(row.address),
     primary_type: row.primary_type == null ? null : String(row.primary_type),
     price_level: normalizeNumber(row.price_level),
+    google_price_level: normalizeNumber(row.google_price_level),
+    cost_override_level: normalizeCostLevel(row.cost_override_level),
+    effective_cost_level:
+      normalizeCostLevel(row.effective_cost_level) ??
+      normalizeCostLevel(row.cost_override_level) ??
+      normalizeCostLevel(row.price_level) ??
+      2,
     group_avg_overall: normalizeNumber(row.group_avg_overall),
     group_avg_nutrition: normalizeNumber(row.group_avg_nutrition),
     current_user_overall: normalizeNumber(row.current_user_overall),
@@ -187,7 +205,7 @@ function matchesFilters(
   }
 
   if (filters.maxPriceLevel != null) {
-    if (row.price_level != null && row.price_level > filters.maxPriceLevel) {
+    if (row.effective_cost_level != null && row.effective_cost_level > filters.maxPriceLevel) {
       return false;
     }
   }
@@ -258,7 +276,7 @@ function sortRows(
     }
 
     if (sortBy === "cost") {
-      const diff = compareNullableNumbersAsc(a.price_level, b.price_level);
+      const diff = compareNullableNumbersAsc(a.effective_cost_level, b.effective_cost_level);
       return diff !== 0 ? diff : collator.compare(a.name, b.name);
     }
 
@@ -466,7 +484,7 @@ function SavedRestaurantCard({
   onRemove: () => void;
 }) {
   const cuisine = prettyCuisine(row.primary_type) ?? "Cuisine";
-  const dollars = priceDollar(row.price_level);
+  const dollars = priceDollar(row.effective_cost_level ?? null);
   const isRated = Boolean(row.current_user_has_rating);
 
   const metrics = [
@@ -890,6 +908,7 @@ export default function RestaurantsPage() {
   const [ratingDraft, setRatingDraft] = useState<RatingDraft>({
     overall: null,
     nutrition: null,
+    costLevel: null,
   });
   const [ratingSaving, setRatingSaving] = useState(false);
   const [ratingError, setRatingError] = useState<string | null>(null);
@@ -1175,6 +1194,7 @@ export default function RestaurantsPage() {
     setRatingDraft({
       overall: row.current_user_overall ?? null,
       nutrition: row.current_user_nutrition ?? null,
+      costLevel: row.effective_cost_level ?? 2,
     });
     setRatingError(null);
   }
@@ -1185,6 +1205,7 @@ export default function RestaurantsPage() {
     setRatingDraft({
       overall: null,
       nutrition: null,
+      costLevel: null,
     });
     setRatingError(null);
   }
@@ -1204,25 +1225,42 @@ export default function RestaurantsPage() {
       return;
     }
 
-    if (ratingDraft.overall == null && ratingDraft.nutrition == null) {
+    const costChanged = ratingDraft.costLevel !== (ratingRow.effective_cost_level ?? null);
+    if (ratingDraft.overall == null && ratingDraft.nutrition == null && !costChanged) {
       setRatingSaving(false);
-      setRatingError("Select an overall or nutrition rating before saving.");
+      setRatingError("Select a rating or update cost before saving.");
       return;
     }
 
-    const { error: saveError } = await supabase
-      .from("restaurant_ratings")
-      .upsert({
-        restaurant_id: ratingRow.restaurant_id,
-        user_id: uid,
-        overall: ratingDraft.overall,
-        nutrition: ratingDraft.nutrition,
+    if (ratingDraft.overall != null || ratingDraft.nutrition != null) {
+      const { error: saveError } = await supabase
+        .from("restaurant_ratings")
+        .upsert({
+          restaurant_id: ratingRow.restaurant_id,
+          user_id: uid,
+          overall: ratingDraft.overall,
+          nutrition: ratingDraft.nutrition,
+        });
+
+      if (saveError) {
+        setRatingSaving(false);
+        setRatingError(saveError.message);
+        return;
+      }
+    }
+
+    if (costChanged) {
+      const { error: costError } = await supabase.rpc("set_group_restaurant_cost_override", {
+        p_group_id: groupId,
+        p_restaurant_id: ratingRow.restaurant_id,
+        p_cost_level: ratingDraft.costLevel,
       });
 
-    if (saveError) {
-      setRatingSaving(false);
-      setRatingError(saveError.message);
-      return;
+      if (costError) {
+        setRatingSaving(false);
+        setRatingError(costError.message);
+        return;
+      }
     }
 
     await loadSavedRestaurants(groupId);
@@ -1238,6 +1276,7 @@ export default function RestaurantsPage() {
       draft: {
         overall: null,
         nutrition: null,
+        costLevel: normalizeCostLevel(row.price_level) ?? 2,
       },
     });
     setAddSaveError(null);
@@ -1251,7 +1290,7 @@ export default function RestaurantsPage() {
 
   async function saveAddRestaurant(
     row: AddRestaurantRow,
-    rating?: RatingDraft | null
+    draft?: RatingDraft | null
   ) {
     if (!groupId || row.is_saved_to_active_group) return;
 
@@ -1277,9 +1316,10 @@ export default function RestaurantsPage() {
         groupId,
         placeId: row.place_id,
         rating:
-          rating && (rating.overall != null || rating.nutrition != null)
-            ? rating
+          draft && (draft.overall != null || draft.nutrition != null)
+            ? { overall: draft.overall, nutrition: draft.nutrition }
             : null,
+        costLevel: draft?.costLevel ?? null,
       }),
     });
 
@@ -1667,6 +1707,11 @@ export default function RestaurantsPage() {
         draft={ratingDraft}
         saving={ratingSaving}
         error={ratingError}
+        costNote={
+          ratingRow?.cost_override_level != null
+            ? "Using a group cost override."
+            : "Using Google or default cost until changed."
+        }
         onClose={closeRatingModal}
         onChange={setRatingDraft}
         onSave={saveRating}
@@ -1675,12 +1720,13 @@ export default function RestaurantsPage() {
       <RestaurantsRatingModal
         open={addSaveModal !== null}
         restaurantName={addSaveModal?.row.name ?? ""}
-        draft={addSaveModal?.draft ?? { overall: null, nutrition: null }}
+        draft={addSaveModal?.draft ?? { overall: null, nutrition: null, costLevel: null }}
         saving={Boolean(savingPlaceId)}
         error={addSaveError}
         closeLabel="Cancel"
         primaryLabel="Save with Rating"
         secondaryLabel="Skip & Save"
+        costNote="Saving applies this cost to the group."
         onClose={closeAddSaveModal}
         onChange={(draft) =>
           setAddSaveModal((current) => (current ? { ...current, draft } : current))

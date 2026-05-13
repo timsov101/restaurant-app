@@ -13,6 +13,7 @@ type SaveRequestBody = {
     overall?: number | null;
     nutrition?: number | null;
   } | null;
+  costLevel?: number | null;
 };
 
 export async function POST(request: Request) {
@@ -33,10 +34,21 @@ export async function POST(request: Request) {
     typeof body.rating?.nutrition === "number"
       ? body.rating.nutrition
       : body.rating?.nutrition ?? null;
+  const costLevel =
+    typeof body.costLevel === "number" && Number.isFinite(body.costLevel)
+      ? Math.round(body.costLevel)
+      : null;
 
   if (!groupId || !placeId) {
     return NextResponse.json(
       { error: "Missing groupId or placeId" },
+      { status: 400 }
+    );
+  }
+
+  if (costLevel != null && (costLevel < 1 || costLevel > 4)) {
+    return NextResponse.json(
+      { error: "Cost level must be between 1 and 4" },
       { status: 400 }
     );
   }
@@ -145,6 +157,21 @@ export async function POST(request: Request) {
 
     if (ratingError) {
       return NextResponse.json({ error: ratingError.message }, { status: 500 });
+    }
+  }
+
+  if (costLevel != null) {
+    const { error: costError } = await membership.supabase.rpc(
+      "set_group_restaurant_cost_override",
+      {
+        p_group_id: groupId,
+        p_restaurant_id: restaurantId,
+        p_cost_level: costLevel,
+      }
+    );
+
+    if (costError) {
+      return NextResponse.json({ error: costError.message }, { status: 500 });
     }
   }
 

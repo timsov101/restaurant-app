@@ -49,6 +49,8 @@ type SavedRestaurant = {
   address: string | null;
   primary_type: string | null;
   price_level: number | null;
+  group_avg_overall: number | null;
+  group_avg_nutrition: number | null;
   distance_miles: number | null;
 };
 
@@ -64,6 +66,9 @@ type SavedRestaurantForGroupRow = {
   address: string | null;
   primary_type: string | null;
   price_level: number | null;
+  effective_cost_level?: number | null;
+  group_avg_overall?: number | null;
+  group_avg_nutrition?: number | null;
   distance_miles?: number | null;
 };
 
@@ -168,7 +173,11 @@ function normalizeSavedRestaurantForGroupRow(
     name: String(row.name ?? "Unknown"),
     address: normalizeString(row.address),
     primary_type: normalizeString(row.primary_type),
-    price_level: normalizeNumber(row.price_level),
+    price_level:
+      normalizeNumber(row.effective_cost_level) ??
+      normalizeNumber(row.price_level),
+    group_avg_overall: normalizeNumber(row.group_avg_overall),
+    group_avg_nutrition: normalizeNumber(row.group_avg_nutrition),
     distance_miles:
       normalizeNumber(row.distance_miles) ??
       normalizeNumber(row.distanceMiles) ??
@@ -254,7 +263,7 @@ function prettyCuisine(primaryType: string | null) {
 
 function priceDollar(priceLevel: number | null) {
   if (priceLevel == null) return null;
-  const n = Math.max(1, Math.min(5, priceLevel + 1));
+  const n = Math.max(1, Math.min(4, priceLevel));
   return "$".repeat(n);
 }
 
@@ -322,6 +331,22 @@ function PickMyOwnCard({
 }) {
   const cuisine = prettyCuisine(restaurant.primary_type) ?? "Cuisine";
   const metrics = [
+    restaurant.group_avg_overall == null
+      ? null
+      : {
+          key: "overall",
+          label: Number(restaurant.group_avg_overall).toFixed(1).replace(/\.0$/, ""),
+          icon: <Star size={14} color="#f59e0b" fill="none" strokeWidth={1.8} />,
+          color: "#364153",
+        },
+    restaurant.group_avg_nutrition == null
+      ? null
+      : {
+          key: "nutrition",
+          label: Number(restaurant.group_avg_nutrition).toFixed(1).replace(/\.0$/, ""),
+          icon: <Leaf size={14} color="#16a34a" strokeWidth={1.8} />,
+          color: "#16a34a",
+        },
     restaurant.price_level == null
       ? null
       : {
@@ -329,6 +354,14 @@ function PickMyOwnCard({
           label: priceDollar(restaurant.price_level),
           icon: <span style={{ fontSize: 15, lineHeight: 1 }}>$</span>,
           color: "#2563eb",
+        },
+    restaurant.distance_miles == null
+      ? null
+      : {
+          key: "distance",
+          label: `${restaurant.distance_miles.toFixed(1)} mi`,
+          icon: <MapPin size={14} color="#a855f7" strokeWidth={1.8} />,
+          color: "#364153",
         },
   ].filter(Boolean) as Array<{
     key: string;
@@ -701,6 +734,7 @@ function RecommendationCard({
   row,
   rank,
   cuisine,
+  distanceMiles,
   selected,
   choosing,
   onChoose,
@@ -708,6 +742,7 @@ function RecommendationCard({
   row: RecRow;
   rank: number;
   cuisine: string;
+  distanceMiles: number | null;
   selected: boolean;
   choosing: boolean;
   onChoose: () => void;
@@ -737,6 +772,14 @@ function RecommendationCard({
           label: priceDollar(row.price_level),
           icon: <span style={{ fontSize: 15, lineHeight: 1 }}>$</span>,
           color: "#2563eb",
+        },
+    distanceMiles == null
+      ? null
+      : {
+          key: "distance",
+          label: `${distanceMiles.toFixed(1)} mi`,
+          icon: <MapPin size={14} color="#a855f7" strokeWidth={1.8} />,
+          color: "#364153",
         },
   ].filter(Boolean) as Array<{
     key: string;
@@ -1865,6 +1908,7 @@ export default function EatPage() {
                 row={r}
                 rank={idx + 1}
                 cuisine={prettyCuisine(recMeta[r.restaurant_id]?.primary_type ?? null) ?? "Cuisine"}
+                distanceMiles={distanceByRestaurantId[r.restaurant_id] ?? null}
                 selected={chosenRestaurantId === r.restaurant_id}
                 choosing={choosingId === r.restaurant_id}
                 onChoose={() => {
